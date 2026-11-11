@@ -35,51 +35,79 @@ The bottom screen is a Jetpack Compose UI in `com.limelight.foldcade` (Kotlin an
 
 ### Layout
 
-- **Header:** the game, the PC, and a stats pill (fps · ping, with a dot that is teal, amber or rose for ping, loss and decode time). Tapping or pressing A on the pill swaps the title for decode time, loss, and resolution/codec. Frame rate does not colour the dot: a host sends only changed frames, so a still desktop runs slow.
-- **PC keys:** Esc, Start (the Windows key), Alt+Tab, Alt+F4, Ctrl+Alt+Del and Type. Alt+F4 and Ctrl+Alt+Del show a small rose ring and take a hold: touch-and-hold or hold A until the key fills. A short press shakes the key and shows "Hold to send". Strokes are built by `PcShortcut`: modifiers down in order, the key tapped, modifiers up in reverse.
-- **Trackpad:** a glass pad with a dot grid and a light under each finger, a scroll strip on its right edge, and L/R click buttons along the bottom. One finger moves the cursor relatively, with acceleration and fractional accumulation. A tap clicks left; it is held 300 ms so double-tap-and-slide can drag without a double-click first, while two quick taps double-click. A two-finger tap right-clicks; a two-finger drag scrolls on both axes. The strip works like a wheel: sliding down scrolls down, and a tap on its top or bottom half scrolls one notch. Holding L or R and moving a finger on the pad drags. Pointer speed and natural scrolling are Settings › Trackpad. All gesture logic is in `TouchpadGesture`.
-- **Rail:** Mute (this device's media volume; put back when the session ends), Pad mouse (Moonlight's controller mouse emulation: the stick moves the cursor, A and B click), Settings, and End. Settings shows an amber dot while a change waits for a restart.
-- **Type** opens the system keyboard on the bottom display. Text goes through `NvConnection.sendUtf8Text`; keys use `Game`'s `KeyboardTranslator` path. A strip of Esc, Tab, Erase, Enter and Done sits above the keyboard.
-- **End** opens two cards. **Disconnect** (Foldcade's "still open" badge) leaves the game running and is focused first. **Quit game** (Foldcade's Close verb, in rose) takes a hold, then calls upstream `NvHTTP.quitApp()` through the broker (`cancel`, then `serverinfo` verification). A failure keeps the session open and shows a message in Foldcade's dialog style. Android's Back gesture on the bottom screen opens End; on the stream screen it does the same.
+Landscape puts a rail of quick tiles beside the keys and pad. Portrait (1080×1240) lays the tiles in a row under the pad, and turns Settings' categories into tabs across the top.
+
+- **Header:** the game, the PC, and a stats pill. The pill's dot is teal, amber or rose, judged on loss, ping and decode time against the frame budget. Frame rate does not colour it: a host sends only changed frames, so a still desktop runs slow. When the dot is amber or rose, the pill names the cause, for example "21 fps · 6% loss" (`StreamHealth`). A on the pill, or a tap, swaps the title for decode time, loss, and resolution/codec.
+- **PC keys:** Esc, Win, Alt+Tab, Alt+F4, Ctrl+Alt+Del and Type. Keys are opaque glass, so the backdrop never cuts through them. Alt+F4 and Ctrl+Alt+Del carry a small rose ring and need a hold: touch-and-hold, or hold A until the key fills. A short press shakes the key and shows "Hold to send" once. `PcShortcut` builds the strokes.
+- **Trackpad:** a glass pad with a dot grid, a light under each finger, a wheel-like scroll strip on the right, and Click and Right-click buttons, each marked with a mouse whose matching half is lit. Until first use, fingertip glyphs show Click (one dot), Right-click (two), Scroll (two and an up-down arrow) and Drag (a double-tap mark). The pad is also a D-pad target: Down from the keys lands on it, and A toggles the stick mouse. All gesture logic is in `TouchpadGesture`.
+- **Rail:** Mute, Stick mouse, Settings and End.
+  - Mute is this device's media volume; unmuting at volume 0 raises it to a quarter, and a mute the companion set is undone when the session ends.
+  - Stick mouse is Moonlight's controller mouse emulation.
+  - On is teal: the tile keeps its card, and its symbol, label and a 1.5dp edge turn teal. The focus colours mean focus, and fill only the Apply pill.
+  - Settings shows an amber dot while a change waits for a restart.
+- **End** opens two cards. **Disconnect** (an exit arrow, teal) leaves the game running and is focused first. **Quit game** (Foldcade's power verb, rose) needs a hold. The deck's End tile wears the same exit arrow, so the power mark belongs only to Quit.
+
+### Typing
+
+- **By touch:** Type opens Android's keyboard. A short trackpad sits above it, so clicking and scrolling need no closing, with a "Take controller" chip on it, and below that a strip of Esc, Tab, Erase, Enter and Done.
+- **With the controller:** while the companion owns the controller, Type opens Foldcade's controller keyboard instead (adapted from Foldcade's MIT `ControllerKeyboard`). `PcKeyboard` sends each key to the PC as it is pressed. Foldcade's bindings hold: A presses the focused key, X erases, Y types a space, L1 and R1 move the caret, L2 steps Shift (one capital, then caps lock), Start is Done, B closes, and R2 is Enter. The chip row gives Esc, Tab and Enter.
+- **Switching:** taking the controller while Android's keyboard is up swaps it for the controller keyboard. The Thor's Back reaches the handover through `RemoteKeyboardView.dispatchKeyEventPreIme`, so the IME never takes it as "close". B closes the keyboard and keeps the controller. Handing the controller back closes the controller keyboard.
 
 ### Who has the controller
 
-The game owns the controller. Every key and stick motion that reaches either window goes to the stream's existing handlers, as before. The player hands the controller to the companion with the **Thor's Back button**. Back comes from a controller that also has a real Select, so Moonlight only maps it to a second Select and games lose nothing. A physical keyboard uses **Ctrl+Alt+Shift+M**, beside Moonlight's own Ctrl+Alt+Shift shortcuts. For a controller without a separate Back, the footer's "Controls here" can be tapped. Touch never moves the controller otherwise.
+The game owns the controller. Every key and stick motion that reaches either window goes to the stream's existing handlers, as before. The player hands the controller to the companion with the **Thor's Back button**. Back comes from a controller that also has a real Select, so Moonlight only maps it to a second Select and games lose nothing. A physical keyboard uses **Ctrl+Alt+Shift+M**. "Take controller" in the footer can be tapped too. Touch never moves the controller otherwise.
 
 While the companion owns it:
 
 - The screen's edge wears the focus ring's light, the focused control has the ring, and the footer shows an amber "Game input paused" chip with hints.
-- The game's screen shows a small pill, "Controller on the bottom screen · Back returns it".
+- The game's screen shows "Controller on bottom screen · [Back] Return".
 - The D-pad (keys or hat) and the left stick move focus, with repeat. A selects, or holds for the hold keys. B goes back a level, and on the deck returns the controller. L1 and R1 page through Settings. Start opens and closes Settings. Back returns the controller from anywhere.
 - Nothing reaches the PC. Taking the controller first releases every button, stick and trigger on the PC (`ControllerHandler.releaseAllInput`).
 
-`ControllerRouter` (unit tested) decides each key's side. A key always comes up on the side it went down on, so a button held across the switch never sticks on the PC or in the companion, and the ownership key itself reaches neither. Volume, power and IME keys never change hands.
+`ControllerRouter` (unit tested) decides each key's side. A key always comes up on the side it went down on, and the ownership key itself reaches neither side.
 
-The companion's window keeps a focused 1×1 view that takes keys in `dispatchKeyEventPreIme`. Android otherwise eats the first D-pad press after a touch to leave touch mode, before any activity code sees it, so that press would reach neither the game nor the companion.
+Keys reach the stream two ways. Moonlight's `StreamView` hands them to `Game.handleKeyDown` in `onKeyPreIme`, before the activity sees them, and anything it leaves comes through `dispatchKeyEvent`. `FoldcadeStreamActivity` routes both. The companion's window keeps a focused 1×1 view that takes keys in `dispatchKeyEventPreIme`, because Android otherwise eats the first D-pad press after a touch to leave touch mode.
+
+`NavHost` holds the companion's own focus. A focus asked for before its target exists (a Settings page that has not composed yet, after a fast R1) waits as `pending`, shows no ring anywhere, and lands when the target registers.
 
 ### Settings
 
-Settings › Video, Audio, Controls and Trackpad, in Foldcade's layout: categories on the left, rows in a card. Every stream setting is Moonlight's own preference under Moonlight's key (`CompanionSettings`), so standalone Moonlight and Foldcade mode share them:
+Settings › Video, Audio, Controls and Trackpad, in Foldcade's layout. Every row leads with a 32dp symbol, and every value ends on one edge before the chevron gutter. Long labels wrap rather than truncate. Every stream setting is Moonlight's own preference under Moonlight's key (`CompanionSettings`), so standalone Moonlight and Foldcade mode share them:
 
-| Row | Key | Values |
-| --- | --- | --- |
-| Resolution | `foldcade_stream_resolution` + `list_resolution` | Top screen, 720p, 1080p, 1440p, 4K |
-| Frame rate | `list_fps` | 30, 60, 90, 120 |
-| Bitrate | `seekbar_bitrate_kbps` | Auto (key removed; shows Moonlight's default), 5–150 Mbps |
-| Codec | `video_format` | Auto, H.264, HEVC, AV1 |
-| HDR | `checkbox_enable_hdr` | |
-| Frame pacing | `frame_pacing` | Lowest latency, Balanced, Cap frame rate, Smoothest |
-| Optimize game settings | `checkbox_enable_sops` | |
-| Speakers | `list_audio_config` | Stereo, 5.1, 7.1 |
-| Play on PC too | `checkbox_host_audio` | |
-| Swap A/B and X/Y | `checkbox_flip_face_buttons` | |
-| Stick deadzone | `seekbar_deadzone` | 0–20% |
-| Hold Start for pad mouse | `checkbox_mouse_emulation` | |
-| Pointer speed, Natural scrolling | `foldcade_pad_speed`, `foldcade_natural_scroll` | apply live |
+| Category | Row | Key | Values |
+| --- | --- | --- | --- |
+| Video | Resolution | `foldcade_stream_resolution` + `list_resolution` | Top screen, 720p, 1080p, 1440p, 4K |
+| | Frame rate | `list_fps` | 30, 60, 90, 120 |
+| | Bitrate | `seekbar_bitrate_kbps` | Auto (key removed), 5–150 Mbps in 5s |
+| | Codec | `video_format` | Auto, H.264, HEVC, AV1 |
+| | HDR | `checkbox_enable_hdr` | |
+| | Frame pacing | `frame_pacing` | Fastest, Balanced, Capped, Smoothest |
+| | Fill screen | `checkbox_stretch_video` | |
+| | Full color range | `checkbox_full_range` | |
+| | Stats on game screen | `checkbox_enable_perf_overlay` | Moonlight's own overlay on the top screen |
+| | Optimize game settings | `checkbox_enable_sops` | |
+| Audio | Speakers | `list_audio_config` | Stereo, 5.1, 7.1 |
+| | Play on PC too | `checkbox_host_audio` | |
+| Controls | Swap A/B and X/Y | `checkbox_flip_face_buttons` | |
+| | Stick deadzone | `seekbar_deadzone` | 0–20% |
+| | Hold Start for stick mouse | `checkbox_mouse_emulation` | |
+| | Motion controls | `checkbox_gamepad_motion_fallback` | The Thor's pad has no sensors, so Moonlight uses the Thor's |
+| | Rumble | `checkbox_vibrate_fallback` | The Thor's pad has no motor, so the Thor itself rumbles |
+| Trackpad | Pointer speed, Natural scrolling | `foldcade_pad_speed`, `foldcade_natural_scroll` | apply live |
+| | Desktop mouse mode | `checkbox_absolute_mouse_mode` | also used by the companion's pad |
 
-**Resolution in Foldcade mode.** The stream uses the top screen's native size, with its default bitrate unless a bitrate is set. This holds unless the player chose a resolution here, or chose one in standalone Moonlight before this key existed. Choosing a size here writes Moonlight's `list_resolution` and marks it `chosen`, so even 720p is honoured. Choosing Top screen marks it `native` and leaves standalone Moonlight's resolution alone.
+`checkbox_unlock_fps` is not offered, because Moonlight reads it only in its own settings screen. `checkbox_gamepad_motion_sensors` is left at Moonlight's default, because the Thor's controller has no sensors of its own.
 
-When a setting a new stream reads differs from what the running stream started with, an **Apply · restart stream** pill rises in the card. Apply disconnects, leaving the game running on the PC, and opens a fresh stream activity for the same session. Its `serverinfo` finds the game running and resumes it with the same launch token. The companion stays up throughout, and the controller goes back to the game.
+Controller behaviour:
+
+- **Choices:** Left and Right step a choice and stop at its ends. At the first value, Left goes back to the categories, and the chevron with nowhere to go fades. A cycles forward with wrap.
+- **Sliders:** they step from the value they show. On Auto, bitrate reads "20 Mbps · Auto", with the thumb at 20, and Right gives 25. A puts a slider back (Auto for bitrate). At the lowest stop, Left goes to the categories.
+- **Categories:** Right (Down in portrait) or A goes into the category's last-used row, else its first.
+- **Hints:** they follow the focus: "A Change · B Categories" on rows, "A Open · B Close" on categories, and "A Restart" on Apply.
+
+**Resolution in Foldcade mode.** The stream uses the top screen's native size, with its default bitrate unless a bitrate is set. This holds unless the player chose a resolution here, or chose one in standalone Moonlight before this key existed. Choosing a size here writes Moonlight's `list_resolution` and marks it `chosen`, so even 720p is honoured.
+
+When a setting a new stream reads differs from what the running stream started with, an **Apply · restart stream** pill rises in the card. Apply disconnects, leaving the game running on the PC, and opens a fresh stream activity for the same session. Its `serverinfo` finds the game running and resumes it with the same launch token. The companion stays up, and the controller goes back to the game.
 
 ## Token renewal and appearance
 
@@ -92,6 +120,7 @@ Kept small and additive:
 
 - `Game`: `prepareStream`, `configureStreamPreferences`, `getRequestTransport`, `onConnectionCreated`, `stageFailureMessage`, plus `releaseControllerInput`, `setControllerMouse` and `isControllerMouseActive`.
 - `ControllerHandler`: `releaseAllInput`, `setMouseEmulation` and `isMouseEmulationActive`.
+- `FoldcadeStreamActivity` overrides `Game.handleKeyDown` and `handleKeyUp`, which `StreamView` calls before the activity's own key dispatch, so routing sees every key.
 - `NvConnection` and `NvHTTP`: the per-connection request transport.
 - `app/build.gradle`: the Compose compiler plugin and Compose dependencies. `minSdk` is 23, because current AndroidX and Compose require it. Foldcade mode itself needs Android 8.
 
@@ -105,7 +134,7 @@ Use the SDK/JDK requirements in the [README](../README.md#building):
 ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing, PC shortcut strokes, D-pad focus geometry, settings keys and pending-restart detection, and appearance parsing.
+JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing, PC shortcut strokes, D-pad focus geometry, `NavHost` traps and pending focus, the controller keyboard's layout and bindings, bitrate stepping, settings keys and pending-restart detection, stream health, and appearance parsing.
 
 For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or reinstall Foldcade or official Moonlight. Read displays with `adb shell dumpsys display`, then launch the debug-only companion on the bottom display:
 
@@ -113,7 +142,7 @@ For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or 
 adb install -r app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
 adb shell am start --display <bottom-display-id> \
   -n app.foldcade.moonlight.debug/com.limelight.foldcade.CompanionPreviewActivity \
-  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|detail|message|restart|fresh] \
+  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|typing-owned|detail|message|restart|fresh] \
   [--es fc_category video|audio|controls|trackpad]
 ```
 
@@ -149,4 +178,4 @@ Local signing reads `RELEASE_KEYSTORE_FILE` (a private file), `RELEASE_KEYSTORE_
 
 ## Licensing
 
-The companion's icons in `app/src/main/res/drawable/fc_ic_*` and `fc_symbol_*` are Foldcade's MIT art. Its focus ring, menu highlight, switch, slider, motion curves and theme tokens are adapted from Foldcade's MIT code. Foldcade's MIT copyright and permission notice is in [`app/src/main/assets/licenses/foldcade-MIT.txt`](../app/src/main/assets/licenses/foldcade-MIT.txt), and each copied file names it. The `fc_pc_*` icons are new to this app, drawn in Foldcade's style, and GPL-3.0. Nunito (`app/src/main/res/font/nunito.ttf`) is under the SIL Open Font License; its license ships beside it in [`app/src/main/assets/licenses/OFL-Nunito.txt`](../app/src/main/assets/licenses/OFL-Nunito.txt). Nothing from this repository goes into Foldcade.
+The companion's icons in `app/src/main/res/drawable/fc_ic_*` and `fc_symbol_*` are Foldcade's MIT art. Its focus ring, menu highlight, switch, slider, controller keyboard (`ui/Keyboard.kt`, `PcKeyboard.kt`), motion curves and theme tokens are adapted from Foldcade's MIT code. Foldcade's MIT copyright and permission notice is in [`app/src/main/assets/licenses/foldcade-MIT.txt`](../app/src/main/assets/licenses/foldcade-MIT.txt), and each copied file names it. The `fc_pc_*` icons are new to this app, drawn in Foldcade's style, and GPL-3.0. Nunito (`app/src/main/res/font/nunito.ttf`) is under the SIL Open Font License; its license ships beside it in [`app/src/main/assets/licenses/OFL-Nunito.txt`](../app/src/main/assets/licenses/OFL-Nunito.txt). Nothing from this repository goes into Foldcade.

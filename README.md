@@ -10,7 +10,7 @@ Moonlight streams games from a computer running [Sunshine](https://github.com/Li
 - Reuse the computers Foldcade has already paired, so you don't pair twice.
 - Start from Foldcade's Moonlight library and return to it.
 
-The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen is a companion in Foldcade's own look: a trackpad with a scroll strip, PC keys (Esc, Start, Alt+Tab, and held Alt+F4 and Ctrl+Alt+Del), typing, live stats, mute, the controller as a mouse, stream settings with apply-and-restart, and a clear choice between Disconnect and a held Quit. The Thor's Back button hands the controller between the game and the companion. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, controls, testing, and release setup.
+The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen is a companion in Foldcade's own look: a trackpad with a scroll strip, PC keys (Esc, Win, Alt+Tab, and held Alt+F4 and Ctrl+Alt+Del), typing by touch or with Foldcade's controller keyboard, live stats, mute, the stick as a mouse, stream settings with apply-and-restart, and a clear choice between Disconnect and a held Quit. It works in landscape and portrait. The Thor's Back button hands the controller between the game and the companion. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, controls, testing, and release setup.
 
 ## Status
 
