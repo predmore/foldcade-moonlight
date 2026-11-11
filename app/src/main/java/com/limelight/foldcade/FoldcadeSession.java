@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.widget.Toast;
 
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.nvstream.NvConnection;
@@ -53,6 +52,16 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     public final Appearance appearance;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ControllerRouter router = new ControllerRouter();
+    /** Which stream may still use the broker; see {@link StreamGate}. */
+    private final StreamGate gate = new StreamGate();
+    /** Stream activities replaced or abandoned on purpose: their finishing never ends the session. */
+    private final java.util.Set<FoldcadeStreamActivity> retired = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    /** The last press of each key the game holds, so a handover can release it on the PC. */
+    private final java.util.Map<Long, KeyEvent> heldByGame = new java.util.HashMap<>();
+    /** The current stream has finished its startup: its connection is up. */
+    private boolean streamStarted;
+    /** How long a stopped stream's last broker request may take to come back (a launch allows 60 s). */
+    static final long DRAIN_MS = 65_000;
     private Intent streamIntent;
     private FoldcadeStreamActivity stream;
     private CompanionView companion;
@@ -82,6 +91,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         this.broker = broker;
         this.simulated = simulated;
         this.appearance = appearance != null ? appearance : Appearance.AFTERGLOW;
+        gate.onRefusal((generation, path) -> android.util.Log.i("Foldcade", "Refused " + path + " from replaced stream " + generation +
+                " (current " + gate.current() + ")"));
     }
 
     static FoldcadeSession create(PluginProtocol.PlayRequest request, ComputerDetails host, BrokerClient broker,
@@ -117,6 +128,12 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         return body;
     }
 
+    /**
+     * The transport for a stream being created now. It works until the stream is replaced or the
+     * game is quit; after that its requests are refused, so a stopped stream cannot launch.
+     */
+    NvHTTP.RequestTransport transport() { return gate.transport(this::request); }
+
     static FoldcadeSession find(Intent intent) {
         FoldcadeSession session = active;
         return session != null && !session.ended && session.id.equals(intent.getStringExtra(PluginProtocol.SESSION)) ? session : null;
@@ -127,6 +144,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         this.connection = connection;
         boolean replaced = restarting;
         restarting = false;
+        streamStarted = false;
         brokerFailure = null;
         applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of(activity));
         Boolean absolute = PreferenceStore.of(activity).bool(CompanionSettings.INSTANCE.getDesktopMouse().getKey());
@@ -153,14 +171,22 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     void attach(CompanionView activity) {
         companion = activity;
+        router.setCompanionAvailable(true);
         if (simulated) applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of((Context) activity));
     }
 
     boolean isStream(FoldcadeStreamActivity activity) { return activity == stream; }
 
-    /** A stream activity finished. Only the current one ends the session; one replaced by a restart does not. */
+    /** The current stream's connection is up; a Quit from here on leaves it to the PC to end. */
+    void streamStarted(FoldcadeStreamActivity activity) { if (activity == stream) streamStarted = true; }
+
+    /**
+     * A stream activity finished. Only the current one ends the session; one replaced by a restart,
+     * or set aside by a Quit, does not.
+     */
     void streamFinished(FoldcadeStreamActivity activity) {
-        if (activity == stream || (stream == null && !restarting)) end();
+        if (retired.contains(activity)) return;
+        if (activity == stream || (stream == null && !restarting && !quitPending)) end();
     }
 
     public void end() {
@@ -173,6 +199,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         stream = null;
         companion = null;
         connection = null;
+        router.setCompanionAvailable(false);
+        gate.advance();
         if (keepAlive != null) keepAlive.shutdownNow();
         main.removeCallbacksAndMessages(null);
         if (mutedHere && oldCompanion != null) setMuted((Context) oldCompanion, false);
@@ -233,17 +261,28 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         stats = null;
         stream = null;
         connection = null;
-        router.setCompanionOwns(false);
+        setCompanionOwnsInput(false);
+        // The old stream's startup may still be waiting on the PC; from now on it cannot launch.
+        int generation = gate.advance();
+        retired.add(old);
         notifyCompanion();
         old.finish();
         new Thread(() -> {
             if (oldConnection != null) oldConnection.stop();
+            try {
+                // A request already on its way finishes before the new stream negotiates its key.
+                if (!gate.drain(DRAIN_MS)) android.util.Log.w("Foldcade", "A replaced stream's request is still outstanding");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            android.util.Log.i("Foldcade", "Restarting the stream as generation " + generation);
             main.post(this::openReplacementStream);
         }, "Foldcade-plugin-restart").start();
     }
 
     private void openReplacementStream() {
-        if (ended) return;
+        // A Quit while the old stream was stopping cancels the restart: nothing may start the game again.
+        if (ended || quitPending || !restarting) return;
         Context context = companion != null ? (Context) companion : null;
         // Foldcade sessions only exist on Android 8 and later; see FoldcadePlayActivity.
         if (context == null || android.os.Build.VERSION.SDK_INT < 26) { end(); return; }
@@ -265,9 +304,18 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     /** The player's deliberate choice: the Thor's Back button, Ctrl+Alt+Shift+M, or the companion's own chip. */
     void setCompanionOwnsInput(boolean owns) {
         if (ended || owns == router.companionOwns()) return;
-        router.setCompanionOwns(owns);
-        // Nothing the game was holding stays held on the PC while the companion has the controller.
-        if (owns && stream != null) stream.releaseGameInput();
+        // No companion, no one to take the controller (one screen, or the companion was refused).
+        if (!router.setCompanionOwns(owns)) return;
+        if (owns) {
+            // Nothing the game was holding stays held on the PC: keyboard keys and modifiers come up,
+            // and the controllers, sensors included, go quiet until the controller comes back.
+            for (Long id : router.releaseHeldByGame()) {
+                KeyEvent down = heldByGame.remove(id);
+                if (down != null && stream != null) stream.deliverKey(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
+            }
+            heldByGame.clear();
+        }
+        if (stream != null) stream.suspendGameInput(owns);
         updatePill();
         notifyCompanion();
     }
@@ -279,8 +327,13 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     boolean interceptKey(KeyEvent event) {
         if (ended || passesThrough(event)) return false;
         boolean ownershipKey = isOwnershipKey(event);
-        switch (router.key(ControllerRouter.keyId(event.getDeviceId(), event.getKeyCode()),
-                event.getAction() == KeyEvent.ACTION_DOWN, event.getRepeatCount(), ownershipKey)) {
+        long id = ControllerRouter.keyId(event.getDeviceId(), event.getKeyCode());
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        ControllerRouter.Route route = router.key(id, down, event.getRepeatCount(), ownershipKey);
+        if (route == ControllerRouter.Route.GAME) {
+            if (down) heldByGame.put(id, event); else heldByGame.remove(id);
+        }
+        switch (route) {
             case TOGGLE:
                 setCompanionOwnsInput(!router.companionOwns());
                 return true;
@@ -341,11 +394,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     void confirmDisconnect() {
         if (companion != null) companion.confirmDisconnect();
-        else if (stream != null) new android.app.AlertDialog.Builder(stream)
-                .setTitle(com.limelight.R.string.foldcade_disconnect_confirm)
-                .setMessage(com.limelight.R.string.foldcade_disconnect_detail)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(com.limelight.R.string.foldcade_disconnect, (dialog, which) -> end()).show();
+        else if (stream != null) stream.showEndPanel(this::end, this::quitGame);
     }
 
     boolean quitPending() { return quitPending; }
@@ -362,11 +411,32 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
             return;
         }
         quitPending = true;
+        // Nothing may launch or resume the game from here: a restart in progress is called off,
+        // and a stream still starting up is set aside before its startup can reach the PC.
+        restarting = false;
+        gate.advance();
+        final NvConnection starting;
+        if (stream != null && !streamStarted) {
+            retired.add(stream);
+            FoldcadeStreamActivity old = stream;
+            starting = connection;
+            stream = null;
+            connection = null;
+            old.finish();
+        } else {
+            starting = null;
+        }
         notifyCompanion();
-        final CompanionView ownerCompanion = companion;
-        final android.app.Activity owner = ownerCompanion != null ? (android.app.Activity) ownerCompanion : stream;
         new Thread(() -> {
             String failure = null;
+            if (starting != null) starting.stop();
+            try {
+                // Any launch a set-aside stream already sent comes back before the cancel goes out.
+                if (!gate.drain(DRAIN_MS)) android.util.Log.w("Foldcade", "A stream's request is still outstanding before Quit");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            android.util.Log.i("Foldcade", "Quitting the game");
             try {
                 NvHTTP http = new NvHTTP(host.activeAddress, host.httpsPort, null, null, null, broker);
                 if (!http.quitApp()) failure = QUIT_KEPT;
@@ -374,7 +444,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                 failure = e instanceof PluginProtocol.BrokerException ? e.getMessage() : QUIT_KEPT;
             }
             final String message = failure;
-            if (owner != null) owner.runOnUiThread(() -> {
+            main.post(() -> {
                 quitPending = false;
                 if (ended) return;
                 if (message == null) end();
@@ -382,7 +452,9 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                     companion.showQuitFailed(message);
                     companion.onSessionChanged();
                 }
-                else Toast.makeText(owner, message, Toast.LENGTH_LONG).show();
+                else if (stream != null) stream.showNotice(message);
+                // No screen left to show it on: a stream set aside for the quit, and no companion.
+                else end();
             });
         }, "Foldcade-plugin-quit").start();
     }

@@ -1081,6 +1081,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void releaseControllerInput() {
         if (controllerHandler != null) controllerHandler.releaseAllInput();
     }
+    /** Keeps every controller's input, sensors included, from the PC while another screen owns it. */
+    protected void suspendControllerInput(boolean suspended) {
+        if (controllerHandler != null) controllerHandler.setInputSuspended(suspended);
+    }
     /** Moonlight's controller mouse emulation, which a long Start press also toggles. */
     protected void setControllerMouse(boolean on) {
         if (controllerHandler != null) controllerHandler.setMouseEmulation(on);

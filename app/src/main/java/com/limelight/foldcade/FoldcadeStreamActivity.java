@@ -20,14 +20,23 @@ import com.limelight.preferences.PreferenceConfiguration;
 public final class FoldcadeStreamActivity extends Game {
     private FoldcadeSession session;
 
+    /** This stream's own broker transport; refused once the stream is replaced or the game quit. */
+    private NvHTTP.RequestTransport transport;
+
     @Override
     protected void onCreate(Bundle state) {
         session = FoldcadeSession.find(getIntent());
+        if (session != null) transport = session.transport();
         super.onCreate(state);
     }
 
     @Override protected boolean prepareStream() { return session != null; }
-    @Override protected NvHTTP.RequestTransport getRequestTransport() { return session; }
+    @Override protected NvHTTP.RequestTransport getRequestTransport() { return transport; }
+
+    @Override public void connectionStarted() {
+        super.connectionStarted();
+        runOnUiThread(() -> { if (session != null) session.streamStarted(this); });
+    }
     @Override protected void onConnectionCreated(NvConnection connection) {
         session.setStreamIntent(getIntent());
         session.attach(this, connection);
@@ -68,14 +77,17 @@ public final class FoldcadeStreamActivity extends Game {
     // reach Game two ways: StreamView hands them over in onKeyPreIme, before the activity sees
     // them, and anything it leaves comes through dispatchKeyEvent. Both are routed.
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!routed && endPanel != null && endPanel.key(event)) return true;
         return !routed && session != null && session.interceptKey(event) || super.dispatchKeyEvent(event);
     }
 
     @Override public boolean handleKeyDown(KeyEvent event) {
+        if (!routed && endPanel != null && endPanel.key(event)) return true;
         return !routed && session != null && session.interceptKey(event) || super.handleKeyDown(event);
     }
 
     @Override public boolean handleKeyUp(KeyEvent event) {
+        if (!routed && endPanel != null && endPanel.key(event)) return true;
         return !routed && session != null && session.interceptKey(event) || super.handleKeyUp(event);
     }
 
@@ -93,7 +105,27 @@ public final class FoldcadeStreamActivity extends Game {
         return session != null && session.interceptMotion(event) || super.dispatchGenericMotionEvent(event);
     }
 
+    private com.limelight.foldcade.ui.StreamEndPanel endPanel;
+
+    /**
+     * Ending a session with no companion: the End choice over the stream. It takes every key
+     * while it is up, and the game gets neutral input until it closes.
+     */
+    void showEndPanel(Runnable disconnect, Runnable quit) {
+        if (endPanel != null) return;
+        suspendGameInput(true);
+        Runnable closed = () -> {
+            endPanel = null;
+            suspendGameInput(false);
+        };
+        endPanel = com.limelight.foldcade.ui.StreamEndPanel.show(this,
+                () -> { closed.run(); disconnect.run(); },
+                () -> { closed.run(); quit.run(); },
+                closed);
+    }
+
     void releaseGameInput() { releaseControllerInput(); }
+    void suspendGameInput(boolean suspended) { suspendControllerInput(suspended); }
 
     /** The game screen's size in pixels: the reference Desktop mouse mode moves the PC's cursor against. */
     int[] screenSize() {

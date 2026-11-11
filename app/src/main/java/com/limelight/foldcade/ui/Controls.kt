@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.min
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** A one-ink symbol in [tint]; null keeps the art's own colours, as a controller button's cap. */
@@ -167,23 +169,33 @@ internal fun KeyCap(
     modifier: Modifier = Modifier,
     danger: Boolean = false,
     enabled: Boolean = true,
+    /** For a hold key, what an accessibility service's activation does instead: ask first. */
+    onConfirm: (() -> Unit)? = null,
     onSend: () -> Unit,
 ) {
     val fold = LocalFold.current
     val corner = 14.dp
     val focused = nav.isFocused(id)
     var pressed by remember { mutableStateOf(false) }
-    val hold = if (danger) rememberHold(nav, id, enabled, onSend) else null
-    val send by rememberUpdatedState(onSend)
+    // A brief glow each time the key sends, from a tap, A, or a completed hold.
+    val pulse = remember { Animatable(0f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val sent: () -> Unit = {
+        onSend()
+        scope.launch { pulse.snapTo(1f); steady { pulse.animateTo(0f, fold.leaveSpec(fold.durationIsland)) } }
+    }
+    val hold = if (danger) rememberHold(nav, id, enabled, sent) else null
+    val send by rememberUpdatedState(sent)
+    val confirm by rememberUpdatedState(onConfirm)
     val lit by eased(if (pressed || focused || hold?.touching == true || nav.holding == id) 1f else 0f, fold.durationShort)
     val view = LocalView.current
     Box(
         modifier
-            .navTarget(nav, id, 0, enabled, hold = danger, activate = onSend)
+            .navTarget(nav, id, 0, enabled, hold = danger) { send() }
             .shakeOnRefuse(nav, id)
             .focusLift(focused, pressed || nav.holding == id)
             .focusRing(focused, corner)
-            .glass(fold, corner) { lit }
+            .glass(fold, corner) { maxOf(lit, pulse.value) }
             .drawWithContent {
                 val progress = hold?.progress?.value ?: 0f
                 if (progress > 0f) {
@@ -203,7 +215,15 @@ internal fun KeyCap(
             .semantics(mergeDescendants = true) {
                 contentDescription = description
                 role = Role.Button
-                onClick { onSend(); true }
+                if (!enabled) disabled()
+                // A hold key never sends from one activation: TalkBack's double-tap asks first.
+                onClick(label = if (danger) "Ask to send" else null) {
+                    when {
+                        !enabled -> false
+                        danger -> { confirm?.invoke(); confirm != null }
+                        else -> { send(); true }
+                    }
+                }
             }
             .pointerInput(danger, enabled) {
                 detectTapGestures(
@@ -249,6 +269,8 @@ internal fun QuickTile(
     on: Boolean = false,
     badge: Boolean = false,
     hold: Boolean = false,
+    /** What A does with the controller, when it differs from a tap (Stick mouse hands the controller back). */
+    onActivate: (() -> Unit)? = null,
     onPress: () -> Unit,
 ) {
     val fold = LocalFold.current
@@ -256,18 +278,21 @@ internal fun QuickTile(
     val focused = nav.isFocused(id)
     var pressed by remember { mutableStateOf(false) }
     val press by rememberUpdatedState(onPress)
+    val activate by rememberUpdatedState(onActivate ?: onPress)
     val lit by eased(if (on) 1f else 0f, fold.durationSelect)
     val bright by eased(if (focused || pressed) 1f else 0f, fold.durationShort)
     // On is teal, as Foldcade's symbols say "on": the tile stays a card, its symbol, label and
     // edge turn teal. The focus colours belong to focus alone.
     Box(
         modifier
-            .navTarget(nav, id, 0, hold = hold, activate = onPress)
+            .navTarget(nav, id, 0, hold = hold) { activate() }
             .shakeOnRefuse(nav, id)
             .focusLift(focused, pressed)
             .focusRing(focused, corner)
             .drawBehind {
                 val r = CornerRadius(corner.toPx())
+                // Opaque underneath, as the keys are, so the backdrop's ribbons never show through.
+                drawRoundRect(fold.background, cornerRadius = r)
                 drawRoundRect(fold.ink.copy(alpha = fold.quickTileAlpha + (fold.quickTileLitAlpha - fold.quickTileAlpha) * bright), cornerRadius = r)
                 if (lit > 0f) {
                     val edge = 1.5.dp.toPx()
@@ -279,7 +304,7 @@ internal fun QuickTile(
             .semantics(mergeDescendants = true) {
                 contentDescription = description
                 role = Role.Button
-                onClick { onPress(); true }
+                onClick { press(); true }
             }
             .pointerInput(Unit) {
                 detectTapGestures(onPress = { pressed = true; tryAwaitRelease(); pressed = false }, onTap = { press() })
@@ -288,8 +313,11 @@ internal fun QuickTile(
     ) {
         val ink = lerp(fold.ink, fold.on, lit)
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Glyph(icon, 26.dp, ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * maxOf(bright, lit) })
-            BasicText(label, style = fold.small.copy(color = ink, fontSize = 12.sp), maxLines = 1)
+            // A symbol that changes (Sound and Muted) crossfades with a little pop rather than cutting.
+            androidx.compose.animation.Crossfade(icon, animationSpec = tween(fold.duration(fold.durationSelect)), label = "tile icon") { shown ->
+                Glyph(shown, 26.dp, ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * maxOf(bright, lit) })
+            }
+            RollingText(label, fold.small.copy(color = ink, fontSize = 12.sp))
         }
     }
 }

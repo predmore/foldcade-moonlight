@@ -60,6 +60,7 @@ import com.limelight.foldcade.PcKeyboard
 import com.limelight.foldcade.StreamHealth
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 
 enum class Sheet { None, End, Settings }
 
@@ -93,10 +94,12 @@ internal class CompanionUi(val title: String, val pcName: String) {
 }
 
 /** What a message is about, which decides its buttons and where focus goes after it. */
-internal enum class MessageKind { QuitFailed, RestartFailed, Info }
+internal enum class MessageKind { QuitFailed, RestartFailed, Info, Confirm }
 
 /** A message in Foldcade's dialog style. [primary] is A's button; [secondary], when there is one, is B's. */
-internal data class Message(val kind: MessageKind, val title: String, val body: String, val primary: String, val secondary: String? = null)
+internal data class Message(val kind: MessageKind, val title: String, val body: String, val primary: String, val secondary: String? = null,
+                             /** Bumped when the same message comes back, as a Try again that failed: the card shakes. */
+                             val attempt: Int = 0)
 
 /** What the screens can do. The activity carries them out against the session. */
 internal interface CompanionActions : PadButtons {
@@ -106,7 +109,11 @@ internal interface CompanionActions : PadButtons {
     fun send(shortcut: PcShortcut)
     fun setTyping(open: Boolean)
     fun setMuted(muted: Boolean)
-    fun setPadMouse(on: Boolean)
+    /** [fromController]: activated with A, which also hands the controller back; a tap only toggles. */
+    fun setPadMouse(on: Boolean, fromController: Boolean)
+    /** Asks before something an accessibility activation would otherwise do at once. */
+    fun confirm(title: String, body: String, primary: String, action: () -> Unit)
+    fun keyboardTap(at: PcKeyboard.Focus)
     fun takeController(take: Boolean)
     fun openSheet(sheet: Sheet)
     fun closeSheet()
@@ -194,8 +201,8 @@ private fun Deck(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
                     Rail(ui, nav, actions, Modifier.width(84.dp).fillMaxHeight(), horizontal = false)
                 }
             }
-            Gap(height = 6.dp)
-            Footer(ui, nav, actions, Modifier.fillMaxWidth().height(34.dp))
+            Gap(height = 2.dp)
+            Footer(ui, nav, actions, Modifier.fillMaxWidth().height(48.dp))
         }
     }
 }
@@ -207,7 +214,7 @@ private fun Pad(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifi
     Trackpad(
         actions.gesture, actions, if (compact) TouchpadGesture.Gesture.entries.toSet() else ui.learned, "PC trackpad",
         modifier
-            .navTarget(nav, if (compact) "pad:compact" else "pad", Layer.DECK, enabled = !compact) { actions.setPadMouse(!ui.padMouse) }
+            .navTarget(nav, if (compact) "pad:compact" else "pad", Layer.DECK, enabled = !compact) { actions.setPadMouse(!ui.padMouse, fromController = true) }
             .focusRing(focused && !compact, 22.dp),
         compact = compact,
     )
@@ -308,9 +315,15 @@ private fun KeysRow(nav: NavHost, actions: CompanionActions, modifier: Modifier)
         KeyCap(nav, "key:start", R.drawable.fc_pc_start, "Win", "Windows key", key) { actions.send(PcShortcut.START_MENU) }
         KeyCap(nav, "key:alttab", R.drawable.fc_pc_switch, "Alt+Tab", "Alt Tab", key) { actions.send(PcShortcut.ALT_TAB) }
         KeyCap(nav, "key:overlay", R.drawable.fc_pc_gamebar, "Overlay", "Game overlay, Windows G", key) { actions.send(PcShortcut.GAME_OVERLAY) }
-        KeyCap(nav, "key:altf4", R.drawable.fc_pc_close_window, "Alt+F4", "Alt F4, hold to send", key, danger = true) { actions.send(PcShortcut.ALT_F4) }
+        KeyCap(nav, "key:altf4", R.drawable.fc_pc_close_window, "Alt+F4", "Alt F4, hold to send", key, danger = true,
+            onConfirm = { actions.confirm("Send Alt+F4?", "It closes the window in front on your PC.", "Send") { actions.send(PcShortcut.ALT_F4) } }) {
+            actions.send(PcShortcut.ALT_F4)
+        }
         KeyCap(nav, "key:cad", R.drawable.fc_pc_security, "Ctrl+Alt+Del", "Control Alt Delete, hold to send",
-            Modifier.weight(1.45f).fillMaxHeight(), danger = true) { actions.send(PcShortcut.CTRL_ALT_DEL) }
+            Modifier.weight(1.45f).fillMaxHeight(), danger = true,
+            onConfirm = { actions.confirm("Send Ctrl+Alt+Del?", "It opens your PC's security screen.", "Send") { actions.send(PcShortcut.CTRL_ALT_DEL) } }) {
+            actions.send(PcShortcut.CTRL_ALT_DEL)
+        }
         KeyCap(nav, "key:type", R.drawable.fc_pc_keyboard, "Type", "Keyboard", key) { actions.setTyping(true) }
     }
 }
@@ -320,7 +333,8 @@ private fun Rail(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modif
     val tiles: @Composable (Modifier) -> Unit = { tile ->
         QuickTile(nav, "tile:mute", if (ui.muted) R.drawable.fc_ic_status_volume_mute else R.drawable.fc_ic_status_volume_3,
             if (ui.muted) "Muted" else "Sound", if (ui.muted) "Unmute" else "Mute", tile, on = ui.muted) { actions.setMuted(!ui.muted) }
-        QuickTile(nav, "tile:mouse", R.drawable.fc_pc_mouse, "Stick mouse", "Controller stick as mouse", tile, on = ui.padMouse) { actions.setPadMouse(!ui.padMouse) }
+        QuickTile(nav, "tile:mouse", R.drawable.fc_pc_mouse, "Stick mouse", "Controller stick as mouse", tile, on = ui.padMouse,
+            onActivate = { actions.setPadMouse(!ui.padMouse, fromController = true) }) { actions.setPadMouse(!ui.padMouse, fromController = false) }
         QuickTile(nav, "tile:settings", R.drawable.fc_ic_status_settings, "Settings", "Settings", tile, badge = ui.pending.isNotEmpty()) { actions.openSheet(Sheet.Settings) }
         QuickTile(nav, "tile:end", R.drawable.fc_pc_exit, "End", "End session", tile) { actions.openSheet(Sheet.End) }
     }
@@ -334,7 +348,7 @@ private fun deckAction(nav: NavHost, ui: CompanionUi): String = when (nav.focuse
     "tile:settings" -> "Open"
     "tile:end" -> "End"
     "stats" -> "Details"
-    "tile:mouse", "pad" -> "Stick mouse"
+    "tile:mouse", "pad" -> if (ui.padMouse) "Stick mouse off" else "Stick mouse"
     "key:type" -> "Type"
     else -> if (nav.current()?.hold == true) "Hold" else "Send"
 }
@@ -347,7 +361,14 @@ private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, mod
     val tipShown by eased(if (tip) 1f else 0f)
     Box(modifier, contentAlignment = Alignment.CenterStart) {
         // The game has the controller: offer it here. Tapping is a deliberate choice too.
-        if (owned < 1f) TakeController(actions, Modifier.graphicsLayer { alpha = 1f - owned })
+        if (owned < 1f) Row(Modifier.graphicsLayer { alpha = 1f - owned }, verticalAlignment = Alignment.CenterVertically) {
+            TakeController(actions)
+            // The stick is the mouse: say so, and how it stops, where the player looks for state.
+            if (ui.padMouse) {
+                Gap(width = 12.dp)
+                StickMouseChip()
+            }
+        }
         if (owned > 0f) Row(
             Modifier.fillMaxWidth().graphicsLayer { alpha = owned },
             verticalAlignment = Alignment.CenterVertically,
@@ -388,17 +409,45 @@ private fun refusalTip(nav: NavHost): Boolean {
     return tip
 }
 
-/** Back, and "Take controller": what hands the controller to these controls. A tap does too. */
+/**
+ * Back, and "Take controller": what hands the controller to these controls. A tap does too, on a
+ * touch area at least 48dp tall however small the words.
+ */
 @Composable
 private fun TakeController(actions: CompanionActions, modifier: Modifier = Modifier) {
     val fold = LocalFold.current
-    Row(
+    TapTarget({ actions.takeController(true) }, "Take controller", modifier) {
+        Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+    }
+}
+
+/** A touch area of at least 48dp around [content], which keeps its own, smaller look. */
+@Composable
+internal fun TapTarget(onTap: () -> Unit, description: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val tap by androidx.compose.runtime.rememberUpdatedState(onTap)
+    Box(
         modifier
-            .semantics(mergeDescendants = true) { role = Role.Button; onClick { actions.takeController(true); true } }
-            .pointerInput(Unit) { detectTapGestures { actions.takeController(true) } },
+            .heightIn(min = 48.dp)
+            .widthIn(min = 48.dp)
+            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = description; onClick { tap(); true } }
+            .pointerInput(Unit) { detectTapGestures { tap() } },
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/** Teal, as on is: the stick is the PC's mouse until Start is held. */
+@Composable
+private fun StickMouseChip() {
+    val fold = LocalFold.current
+    Row(
+        Modifier
+            .drawBehind { drawRoundRect(fold.on.copy(alpha = 0.14f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+        Glyph(R.drawable.fc_pc_mouse, 16.dp, fold.on)
+        Gap(width = 6.dp)
+        BasicText("Stick mouse · Hold Start to stop", style = fold.hint.copy(color = fold.on, fontWeight = fold.strong), maxLines = 1)
     }
 }
 
@@ -428,10 +477,13 @@ private fun TouchTyping(ui: CompanionUi, nav: NavHost, actions: CompanionActions
         Spacer(Modifier.weight(1f))
         Box(Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 110.dp).weight(1f, fill = false)) {
             Pad(ui, nav, actions, Modifier.fillMaxSize(), compact = true)
-            Box(Modifier.padding(10.dp)
-                .drawBehind { drawRoundRect(Color.Black.copy(alpha = 0.55f), cornerRadius = CornerRadius(size.height / 2f)) }
-                .padding(horizontal = 10.dp, vertical = 4.dp)) {
-                TakeController(actions)
+            val fold = LocalFold.current
+            TapTarget({ actions.takeController(true) }, "Take controller", Modifier.padding(start = 4.dp)) {
+                Box(Modifier
+                    .drawBehind { drawRoundRect(Color.Black.copy(alpha = 0.55f), cornerRadius = CornerRadius(size.height / 2f)) }
+                    .padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+                }
             }
         }
         Gap(height = 8.dp)
@@ -458,7 +510,7 @@ private fun ControllerTyping(ui: CompanionUi, keyboard: PcKeyboard.State, action
         // The keys need about 6.7 of their own widths in height; the pad takes what is left, if enough.
         val keyUnit = (maxWidth - 28.dp) / PcKeyboard.WIDTH
         val keysTall = keyUnit * 6.72f + 28.dp
-        val padRoom = maxHeight - 40.dp - 30.dp - keysTall
+        val padRoom = maxHeight - 40.dp - 48.dp - keysTall
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
                 PausedChip()
@@ -469,13 +521,13 @@ private fun ControllerTyping(ui: CompanionUi, keyboard: PcKeyboard.State, action
                     Hint(R.drawable.fc_ic_btn_b, "Close")
                 }
             }
-            Echo(keyboard, actions, Modifier.fillMaxWidth().height(36.dp))
+            Echo(keyboard, actions, Modifier.fillMaxWidth().height(48.dp))
             // The keys keep their own height; the pad takes the rest, so nothing floats in a gap.
             if (padRoom >= 72.dp) {
                 Pad(ui, nav, actions, Modifier.fillMaxWidth().weight(1f), compact = true)
-                PcKeyboardView(keyboard, Modifier.height(keysTall).fillMaxWidth())
+                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.height(keysTall).fillMaxWidth())
             } else {
-                PcKeyboardView(keyboard, Modifier.weight(1f).fillMaxWidth())
+                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.weight(1f).fillMaxWidth())
             }
         }
     }
@@ -509,16 +561,16 @@ private fun Echo(keyboard: PcKeyboard.State, actions: CompanionActions, modifier
 @Composable
 private fun TouchKeysChip(actions: CompanionActions) {
     val fold = LocalFold.current
-    Row(
-        Modifier
-            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
-            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "Touch keyboard"; onClick { actions.touchKeys(); true } }
-            .pointerInput(Unit) { detectTapGestures { actions.touchKeys() } }
-            .padding(horizontal = 12.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Glyph(R.drawable.fc_pc_keyboard, 18.dp, fold.ink)
-        Gap(width = 6.dp)
-        BasicText("Touch keys", style = fold.hint.copy(color = fold.ink), maxLines = 1)
+    TapTarget(actions::touchKeys, "Touch keyboard") {
+        Row(
+            Modifier
+                .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Glyph(R.drawable.fc_pc_keyboard, 18.dp, fold.ink)
+            Gap(width = 6.dp)
+            BasicText("Touch keys", style = fold.hint.copy(color = fold.ink), maxLines = 1)
+        }
     }
 }

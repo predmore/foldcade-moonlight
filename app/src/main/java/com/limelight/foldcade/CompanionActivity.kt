@@ -138,9 +138,10 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         }, FrameLayout.LayoutParams(-1, -1))
         // The Thor's Back hands the controller over even while Android's keyboard is up, which
         // would otherwise take it as "close the keyboard".
-        editor = RemoteKeyboardView(this, s, { setTyping(false) }) { event ->
-            FoldcadeSession.isOwnershipKey(event) && handleKey(event)
-        }
+        // While Android's keyboard is up, a physical controller key would otherwise reach the IME
+        // first (Gboard walks its keys with the D-pad). Controller keys go through routing instead,
+        // to the game or to these controls; only the soft keyboard's own events reach the IME.
+        editor = RemoteKeyboardView(this, s, { setTyping(false) }) { event -> isPhysicalController(event) && handleKey(event) }
         root.addView(editor, FrameLayout.LayoutParams(1, 1))
         keySink = KeySink(this)
         root.addView(keySink, FrameLayout.LayoutParams(1, 1))
@@ -236,6 +237,9 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
 
     private fun isSystemKey(code: Int) = code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN ||
         code == KeyEvent.KEYCODE_VOLUME_MUTE || code == KeyEvent.KEYCODE_POWER
+
+    private fun isPhysicalController(event: KeyEvent) = isController(event) &&
+        (event.flags and KeyEvent.FLAG_SOFT_KEYBOARD) == 0 && event.deviceId != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
 
     private fun isController(event: KeyEvent) =
         event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)
@@ -444,10 +448,26 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
      * The stick is the mouse only while the game has the controller, so turning it on from here
      * with the controller hands the controller back. Turning it off leaves the controller where it is.
      */
-    override fun setPadMouse(on: Boolean) {
+    override fun setPadMouse(on: Boolean, fromController: Boolean) {
         val s = session ?: return
         s.setPadMouse(on)
-        if (on && nav.owned) s.setCompanionOwnsInput(false)
+        // Only the controller's own A hands the controller back; touch never moves it.
+        if (on && fromController && nav.owned) s.setCompanionOwnsInput(false)
+    }
+
+    override fun keyboardTap(at: PcKeyboard.Focus) {
+        val state = ui.keyboard ?: return
+        val (next, output) = state.press(at)
+        ui.keyboard = next
+        deliver(output)
+    }
+
+    /** What the confirmation's primary button does; set by [confirm], cleared when it closes. */
+    private var pendingConfirm: (() -> Unit)? = null
+
+    override fun confirm(title: String, body: String, primary: String, action: () -> Unit) {
+        pendingConfirm = action
+        show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.Confirm, title, body, primary, "Cancel"))
     }
 
     override fun touchKeys() {
@@ -516,8 +536,15 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     override fun showMessage(title: String, message: String) =
         show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.Info, title, message, "OK"))
 
-    override fun showQuitFailed(reason: String) =
+    override fun showQuitFailed(reason: String) {
+        val shown = ui.message
+        if (shown?.kind == com.limelight.foldcade.ui.MessageKind.QuitFailed) {
+            // Try again failed too: the card stays, says so, and shakes so the press visibly answered.
+            ui.message = shown.copy(body = "Still running. Try again or disconnect.", attempt = shown.attempt + 1)
+            return
+        }
         show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.QuitFailed, "Game didn't quit", reason, "Try again", "Disconnect"))
+    }
 
     override fun showRestartFailed() {
         if (ui.sheet != Sheet.None) closeSheet()
@@ -534,7 +561,13 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     override fun messagePrimary() {
         val message = ui.message ?: return
         when (message.kind) {
-            com.limelight.foldcade.ui.MessageKind.QuitFailed -> { dismissMessage(); quit() }
+            // The card stays while the PC answers; it closes with the session, or shakes on another refusal.
+            com.limelight.foldcade.ui.MessageKind.QuitFailed -> quit()
+            com.limelight.foldcade.ui.MessageKind.Confirm -> {
+                val action = pendingConfirm
+                dismissMessage()
+                action?.invoke()
+            }
             com.limelight.foldcade.ui.MessageKind.RestartFailed -> session?.end()
             com.limelight.foldcade.ui.MessageKind.Info -> dismissMessage()
         }
@@ -545,7 +578,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         when (message.kind) {
             com.limelight.foldcade.ui.MessageKind.QuitFailed -> disconnect()
             com.limelight.foldcade.ui.MessageKind.RestartFailed -> session?.end()
-            com.limelight.foldcade.ui.MessageKind.Info -> dismissMessage()
+            com.limelight.foldcade.ui.MessageKind.Info, com.limelight.foldcade.ui.MessageKind.Confirm -> dismissMessage()
         }
     }
 
@@ -557,7 +590,13 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     override fun dismissMessage() {
         val message = ui.message ?: return
         ui.message = null
+        pendingConfirm = null
         val fromQuit = message.kind == com.limelight.foldcade.ui.MessageKind.QuitFailed
+        if (message.kind == com.limelight.foldcade.ui.MessageKind.Confirm) {
+            // A confirmation came from a control that is still there: back to it.
+            nav.closeLayer(when (ui.sheet) { Sheet.End -> Layer.END; Sheet.Settings -> Layer.SETTINGS; Sheet.None -> Layer.DECK })
+            return
+        }
         when (ui.sheet) {
             Sheet.End -> { nav.closeLayer(Layer.END); nav.focus(if (fromQuit) "end:quit" else "end:disconnect") }
             Sheet.Settings -> { nav.closeLayer(Layer.SETTINGS); nav.focus("cat:${ui.category}") }
@@ -582,6 +621,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             "typing-owned" -> { s.setCompanionOwnsInput(true); setTyping(true) }
             "detail" -> ui.statsDetail = true
             "message" -> showQuitFailed(FoldcadeSession.QUIT_KEPT)
+            "confirm" -> confirm("Send Alt+F4?", "It closes the window in front on your PC.", "Send") { }
             "quit-fail" -> { s.simulateQuitFailure = true; s.setCompanionOwnsInput(true); openSheet(Sheet.End) }
             "restart-fail" -> showRestartFailed()
             "restart" -> s.restartStream()

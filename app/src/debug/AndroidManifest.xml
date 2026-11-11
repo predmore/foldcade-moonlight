@@ -9,5 +9,9 @@
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|screenLayout|density|uiMode"
             android:theme="@style/FoldcadeCompanionTheme" />
+        <activity android:name=".foldcade.StreamEndPreviewActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/FoldcadeCompanionTheme" />
     </application>
 </manifest>

@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -75,10 +76,14 @@ internal fun Sheets(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
     if (shown != Sheet.None) {
         Box(Modifier.fillMaxSize().drawBehind { drawRect(fold.background.copy(alpha = fold.scrimAlpha * open)) }
             .pointerInput(Unit) { detectTapGestures { if (shown == Sheet.End) actions.closeSheet() } })
-        when (shown) {
-            Sheet.End -> EndSheet(ui, nav, actions) { open }
-            Sheet.Settings -> SettingsSheet(ui, nav, actions) { open }
-            Sheet.None -> Unit
+        // A message over a sheet: the sheet steps right back, so its words never read through the card.
+        val under by eased(if (ui.message != null) 1f else 0f, fold.durationIsland)
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - 0.85f * under }) {
+            when (shown) {
+                Sheet.End -> EndSheet(ui, nav, actions) { open }
+                Sheet.Settings -> SettingsSheet(ui, nav, actions) { open }
+                Sheet.None -> Unit
+            }
         }
     }
     var lastMessage by remember { mutableStateOf<Message?>(null) }
@@ -107,10 +112,12 @@ private fun EndSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActions, p
                 Modifier.weight(1f).fillMaxHeight().cascade(fold, 0, progress), hold = false, enabled = true) { actions.disconnect() }
             EndCard(nav, "end:quit", R.drawable.fc_symbol_close, fold.rose, "Quit game",
                 if (ui.quitPending) "Quitting…" else "Closes it on the PC",
-                Modifier.weight(1f).fillMaxHeight().cascade(fold, 1, progress), hold = true, enabled = !ui.quitPending) { actions.quit() }
+                Modifier.weight(1f).fillMaxHeight().cascade(fold, 1, progress), hold = true, enabled = !ui.quitPending,
+                onConfirm = { actions.confirm("Quit game?", "It closes the game on your PC.", "Quit") { actions.quit() } }) { actions.quit() }
         }
         Gap(height = 12.dp)
-        HintRow {
+        // Under a message its own buttons speak; the sheet's hints would contradict them.
+        if (ui.message == null) HintRow {
             val quit = nav.focused == "end:quit"
             Hint(R.drawable.fc_ic_btn_a, if (quit) "Hold to quit" else "Disconnect")
             Hint(R.drawable.fc_ic_btn_b, "Cancel")
@@ -121,7 +128,7 @@ private fun EndSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActions, p
 @Composable
 private fun EndCard(
     nav: NavHost, id: String, icon: Int, accent: androidx.compose.ui.graphics.Color, title: String, detail: String,
-    modifier: Modifier, hold: Boolean, enabled: Boolean, onChoose: () -> Unit,
+    modifier: Modifier, hold: Boolean, enabled: Boolean, onConfirm: (() -> Unit)? = null, onChoose: () -> Unit,
 ) {
     val fold = LocalFold.current
     val corner = 26.dp
@@ -148,7 +155,19 @@ private fun EndCard(
                 drawRoundRect(fold.ink.copy(alpha = fold.borderAlpha), cornerRadius = r, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
                 drawContent()
             }
-            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "$title. $detail"; onClick { onChoose(); true } }
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = "$title. $detail"
+                if (!enabled) disabled()
+                // A hold never completes from one accessibility activation: Quit asks first.
+                onClick(label = if (hold) "Ask to quit" else null) {
+                    when {
+                        !enabled -> false
+                        hold -> { onConfirm?.invoke(); onConfirm != null }
+                        else -> { onChoose(); true }
+                    }
+                }
+            }
             .pointerInput(hold, enabled) {
                 detectTapGestures(
                     onPress = {
@@ -295,7 +314,7 @@ private fun SettingsCard(ui: CompanionUi, nav: NavHost, actions: CompanionAction
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(scroll)
-                    .padding(horizontal = 10.dp, vertical = 10.dp)
+                    .padding(start = 10.dp, end = 10.dp, top = 12.dp, bottom = 18.dp)
                     .selectionHighlight(nav, slots),
             ) {
                 category.settings.forEachIndexed { index, setting ->
@@ -445,17 +464,22 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
     @Suppress("UNUSED_VARIABLE") val version = ui.settingsVersion
     val store = actions.store
     val requester = remember { BringIntoViewRequester() }
-    LaunchedEffect(focused) {
+    var rowSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val margin = with(androidx.compose.ui.platform.LocalDensity.current) { 16.dp.toPx() }
+    LaunchedEffect(focused, rowSize) {
         if (focused) {
             ui.lastRow[ui.category] = id
-            requester.bringIntoView()
+            // The ring and its glow reach past the row, so the row comes into view with room around it.
+            if (rowSize != androidx.compose.ui.unit.IntSize.Zero) {
+                requester.bringIntoView(Rect(-margin, -margin, rowSize.width + margin, rowSize.height + margin))
+            }
         }
     }
     val changed = { actions.settingChanged() }
     val rowModifier = modifier
         .fillMaxWidth()
         .bringIntoViewRequester(requester)
-        .onGloballyPositioned { slots[id] = Rect(it.positionInParent(), it.size.toSize()) }
+        .onGloballyPositioned { slots[id] = Rect(it.positionInParent(), it.size.toSize()); rowSize = it.size }
     val icon = settingIcon(setting)
     when (setting) {
         is Setting.Toggle -> {
@@ -599,11 +623,25 @@ private fun MessageCard(message: Message, nav: NavHost, actions: CompanionAction
     val fold = LocalFold.current
     Box(Modifier.fillMaxSize().drawBehind { drawRect(fold.background.copy(alpha = fold.scrimAlpha * progress())) }
         .pointerInput(Unit) { detectTapGestures { } }, contentAlignment = Alignment.Center) {
+        // The same message again (a Try again that failed at once) shakes, so the press visibly answered.
+        val shake = remember { Animatable(0f) }
+        LaunchedEffect(message.attempt) {
+            if (message.attempt == 0) return@LaunchedEffect
+            steady {
+                shake.animateTo(0f, androidx.compose.animation.core.keyframes {
+                    durationMillis = fold.duration(fold.durationSelect) * 2
+                    fold.shakePx * 1.5f at durationMillis / 8
+                    -fold.shakePx * 1.5f at durationMillis * 3 / 8
+                    fold.shakePx at durationMillis * 5 / 8
+                    -fold.shakePx / 2 at durationMillis * 7 / 8
+                })
+            }
+        }
         MessagePanel(
             message.title, message.body, message.primary, message.secondary,
             primaryFocused = nav.isFocused("message:primary"), secondaryFocused = nav.isFocused("message:secondary"),
             onPrimary = actions::messagePrimary, onSecondary = actions::messageSecondary,
-            modifier = Modifier.rise(fold, progress),
+            modifier = Modifier.rise(fold, progress).graphicsLayer { translationX = shake.value.dp.toPx() },
             primaryModifier = Modifier.navTarget(nav, "message:primary", Layer.MESSAGE) { actions.messagePrimary() },
             secondaryModifier = Modifier.navTarget(nav, "message:secondary", Layer.MESSAGE) { actions.messageSecondary() },
         )

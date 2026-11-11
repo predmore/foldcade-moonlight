@@ -1,6 +1,11 @@
 package com.limelight.foldcade.ui
 
 import android.view.MotionEvent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -160,13 +165,14 @@ internal fun Trackpad(
                 if (!compact) {
                     Row(
                         Modifier.align(Alignment.BottomStart).padding(14.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        PadHint(Fingers.One, "Click", TouchpadGesture.Gesture.CLICK !in learned)
-                        PadHint(Fingers.Two, "Right-click", TouchpadGesture.Gesture.RIGHT_CLICK !in learned)
-                        PadHint(Fingers.TwoMoving, "Scroll", TouchpadGesture.Gesture.SCROLL !in learned)
-                        PadHint(Fingers.DoubleTap, "Drag", TouchpadGesture.Gesture.DRAG !in learned)
+                        // A retired hint fades and folds away; the rest slide together, leaving no hole.
+                        val leave = fadeOut(tween(fold.duration(fold.durationIsland))) + shrinkHorizontally(tween(fold.duration(fold.durationIsland)))
+                        AnimatedVisibility(TouchpadGesture.Gesture.CLICK !in learned, exit = leave, enter = EnterTransition.None) { PadHint(Fingers.One, "Click") }
+                        AnimatedVisibility(TouchpadGesture.Gesture.RIGHT_CLICK !in learned, exit = leave, enter = EnterTransition.None) { PadHint(Fingers.Two, "Right-click") }
+                        AnimatedVisibility(TouchpadGesture.Gesture.SCROLL !in learned, exit = leave, enter = EnterTransition.None) { PadHint(Fingers.TwoMoving, "Scroll") }
+                        AnimatedVisibility(TouchpadGesture.Gesture.DRAG !in learned, exit = leave, enter = EnterTransition.None) { PadHint(Fingers.DoubleTap, "Drag") }
                     }
                 }
             }
@@ -190,12 +196,10 @@ internal enum class Fingers { One, Two, TwoMoving, DoubleTap }
  * the pad's first use.
  */
 @Composable
-private fun PadHint(fingers: Fingers, label: String, needed: Boolean) {
+private fun PadHint(fingers: Fingers, label: String) {
     val fold = LocalFold.current
-    // A hint fades once its own gesture has been used, and leaves the row when it has gone.
-    val shown by eased(if (needed) 1f else 0f, fold.durationIsland)
-    if (shown <= 0f && !needed) return
-    Row(Modifier.graphicsLayer { alpha = shown }, verticalAlignment = Alignment.CenterVertically) {
+    // The gap after each hint belongs to it, so it folds away with the hint.
+    Row(Modifier.padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(if (fingers == Fingers.One || fingers == Fingers.DoubleTap) 20.dp else 32.dp).height(22.dp).drawBehind {
             val ink = fold.ink.copy(alpha = 0.7f)
             val r = 3.2.dp.toPx()

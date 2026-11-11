@@ -55,13 +55,15 @@ import kotlin.math.roundToInt
  * bounce. A key flashes when it acts, even when a button did the work, and the keys a button
  * also works wear its glyph: X on Erase, Y on Space, L2 on Shift, Start on Done.
  *
- * It is played with the controller, so its keys take no taps: at 12 across, a key is about 40dp,
- * short of a finger's 48dp. Touch types with Android's keyboard, one tap away on "Touch keys".
+ * It is played with the controller first. A tap still types its key, and the highlight moves
+ * there, so a finger on it is never ignored; at 12 keys across a key is about 40dp, so steady
+ * typing by touch is Android's keyboard, one tap away on "Touch keys".
  */
 @Composable
-internal fun PcKeyboardView(state: PcKeyboard.State, modifier: Modifier = Modifier) {
+internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -> Unit, modifier: Modifier = Modifier) {
     val fold = LocalFold.current
     val density = LocalDensity.current
+    val tap by rememberUpdatedState(onTap)
     val caps by eased(if (state.shift == PcKeyboard.Shift.Off) 0f else 1f)
     val flash = remember { Animatable(0f) }
     LaunchedEffect(state.pressed) {
@@ -119,7 +121,8 @@ internal fun PcKeyboardView(state: PcKeyboard.State, modifier: Modifier = Modifi
                                 cornerRadius = r, alpha = 0.5f * lit)
                             drawRoundRect(fold.ink.copy(alpha = 0.12f), cornerRadius = r, style = Stroke(1.dp.toPx()))
                         }
-                        .semantics { contentDescription = chip.label },
+                        .semantics { contentDescription = chip.label }
+                        .pointerInput(index) { detectTapGestures { tap(PcKeyboard.Focus(PcKeyboard.CHIP_ROW, index, PcKeyboard.chipCenter(index))) } },
                     contentAlignment = Alignment.Center,
                 ) {
                     val labelSize = with(density) { (unit * 0.34f).toSp() }
@@ -139,7 +142,8 @@ internal fun PcKeyboardView(state: PcKeyboard.State, modifier: Modifier = Modifi
                     Key(placed, state, focused, state.pressedKey?.let { it.row == at.row && it.index == at.index } == true, { flash.value }, { caps }, unit,
                         Modifier
                             .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
-                            .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() }))
+                            .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
+                            .pointerInput(row, index) { detectTapGestures { tap(at) } })
                 }
             }
         }
