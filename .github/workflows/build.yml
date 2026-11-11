@@ -1,0 +1,102 @@
+name: Build
+
+# pull_request runs are read-only for the Gradle cache. push to main writes it.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: assembleNonRootDebug + lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Android SDK root
+        id: sdk
+        run: echo "root=$HOME/android-sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Read NDK version
+        id: ndk
+        run: echo "version=$(sed -n 's/^ *ndkVersion "\(.*\)"/\1/p' app/build.gradle)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Android SDK packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.sdk.outputs.root }}/cmdline-tools
+            ${{ steps.sdk.outputs.root }}/platforms
+            ${{ steps.sdk.outputs.root }}/build-tools
+            ${{ steps.sdk.outputs.root }}/platform-tools
+            ${{ steps.sdk.outputs.root }}/ndk
+            ${{ steps.sdk.outputs.root }}/licenses
+          key: android-sdk-37.0-build-tools-37.0.0-ndk-${{ steps.ndk.outputs.version }}-v1
+
+      - name: Install Android SDK packages
+        env:
+          SDK_ROOT: ${{ steps.sdk.outputs.root }}
+          NDK_VERSION: ${{ steps.ndk.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$SDK_ROOT"
+          if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            tmp="$(mktemp -d)"
+            curl -fsSL -o "$tmp/cmdlinetools.zip" \
+              https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip
+            unzip -q "$tmp/cmdlinetools.zip" -d "$tmp"
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            rm -rf "$SDK_ROOT/cmdline-tools/latest"
+            mv "$tmp/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          fi
+          sdkmanager="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # sdkmanager closes stdin, so `yes` exits 141. Licenses are still accepted.
+          yes | "$sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$SDK_ROOT" --install \
+            "platforms;android-37.0" \
+            "build-tools;37.0.0" \
+            "platform-tools" \
+            "ndk;$NDK_VERSION"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Build and lint
+        run: ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: foldcade-moonlight-debug
+          path: app/build/outputs/apk/nonRoot/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-nonRootDebug.html
+          if-no-files-found: ignore

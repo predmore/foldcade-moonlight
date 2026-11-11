@@ -1,35 +1,68 @@
-# Moonlight Android
+# Foldcade Moonlight
 
-[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/232a8tadrrn8jv0k/branch/master?svg=true)](https://ci.appveyor.com/project/cgutman/moonlight-android/branch/master)
-[![Translation Status](https://hosted.weblate.org/widgets/moonlight/-/moonlight-android/svg-badge.svg)](https://hosted.weblate.org/projects/moonlight/moonlight-android/)
+[![Build](https://github.com/predmore/foldcade-moonlight/actions/workflows/build.yml/badge.svg)](https://github.com/predmore/foldcade-moonlight/actions/workflows/build.yml)
 
-[Moonlight for Android](https://moonlight-stream.org) is an open source client for NVIDIA GameStream and [Sunshine](https://github.com/LizardByte/Sunshine).
+A two-screen build of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android) made to work with [Foldcade](https://github.com/predmore/foldcade), the gaming frontend for the AYN Thor.
 
-Moonlight for Android will allow you to stream your full collection of games from your Windows PC to your Android device,
-whether in your own home or over the internet.
+Moonlight streams games from a computer running [Sunshine](https://github.com/LizardByte/Sunshine), Apollo, or NVIDIA GameStream. This fork is where Foldcade-specific work happens:
 
-Moonlight also has a [PC client](https://github.com/moonlight-stream/moonlight-qt) and [iOS/tvOS client](https://github.com/moonlight-stream/moonlight-ios).
+- Use both of the Thor's screens while streaming.
+- Reuse the computers Foldcade has already paired, so you don't pair twice.
+- Start from Foldcade's Moonlight library and return to it.
 
-You can follow development on our [Discord server](https://moonlight-stream.org/discord) and help translate Moonlight into your language on [Weblate](https://hosted.weblate.org/projects/moonlight/moonlight-android/).
+None of these features are built yet. Right now the app is upstream Moonlight 12.2 with its own application ID and name.
 
-## Downloads
-* [Google Play Store](https://play.google.com/store/apps/details?id=com.limelight)
-* [Amazon App Store](https://www.amazon.com/gp/product/B00JK4MFN2)
-* [F-Droid](https://f-droid.org/packages/com.limelight)
-* [APK](https://github.com/moonlight-stream/moonlight-android/releases)
+## Status
+
+| | |
+| --- | --- |
+| Upstream base | moonlight-android `master`, Version 12.2 |
+| Application ID | `app.foldcade.moonlight` (debug: `app.foldcade.moonlight.debug`) |
+| App name | Foldcade Moonlight |
+
+It installs next to the official Moonlight app (`com.limelight`) and does not replace it. Foldcade's bundled Moonlight plugin still launches the official app.
 
 ## Building
-* Install Android Studio and the Android NDK
-* Run ‘git submodule update --init --recursive’ from within moonlight-android/
-* In moonlight-android/, create a file called ‘local.properties’. Add an ‘ndk.dir=’ property to the local.properties file and set it equal to your NDK directory.
-* Build the APK using Android Studio or gradle
 
-## Authors
+You need:
 
-* [Cameron Gutman](https://github.com/cgutman)  
-* [Diego Waxemberg](https://github.com/dwaxemberg)  
-* [Aaron Neyer](https://github.com/Aaronneyer)  
-* [Andrew Hennessy](https://github.com/yetanothername)
+- JDK 21. CI uses Temurin 21.
+- The Android SDK with `platforms;android-37.0`, `build-tools;37.0.0`, and `platform-tools`.
+- The Android NDK version that `ndkVersion` in [`app/build.gradle`](app/build.gradle) names. Install it with `sdkmanager "ndk;<version>"`.
+- The submodules: `git submodule update --init --recursive`.
 
-Moonlight is the work of students at [Case Western](http://case.edu) and was
-started as a project at [MHacks](http://mhacks.org).
+Set `ANDROID_HOME` to your SDK root, or put `sdk.dir=` in a `local.properties` file. That file is ignored by Git. Then build:
+
+```sh
+./gradlew :app:assembleNonRootDebug
+```
+
+The APK is written to `app/build/outputs/apk/nonRoot/debug/`. Lint runs with `./gradlew :app:lintNonRootDebug`. CI runs both on every pull request and push to `main`.
+
+The `root` flavor targets Android 7.1 and older rooted devices. It is kept from upstream, but the Thor uses `nonRoot`.
+
+## Staying current with upstream
+
+```sh
+git remote add upstream https://github.com/moonlight-stream/moonlight-android.git
+git fetch upstream
+git merge upstream/master
+```
+
+Keep changes to upstream files small and grouped, and put Foldcade-specific code in its own files where you can, so merges stay easy.
+
+## License
+
+Foldcade Moonlight is licensed under the [GNU General Public License v3.0](LICENSE.txt), the license moonlight-android uses. It can't be relicensed, so every change in this repository is GPL-3.0 too.
+
+- **Using Foldcade code here:** Foldcade is [MIT](https://github.com/predmore/foldcade/blob/main/LICENSE). MIT code can be included in this GPL project. Keep Foldcade's MIT copyright and permission notice with what you copy.
+- **Using this code in Foldcade:** You can't copy GPL code from here into Foldcade's MIT codebase. Foldcade and this app stay separate programs that talk through Android's documented interfaces: intents, shortcuts, and content providers. This keeps Foldcade MIT.
+- **Submodules:** `moonlight-common-c` and its own submodules keep their licenses.
+
+If you distribute an APK, the GPL requires you to offer its complete source code too. One way is to publish it as a release in this repository, tagged at the commit it was built from.
+
+## Credits
+
+Moonlight is by [Cameron Gutman](https://github.com/cgutman), [Diego Waxemberg](https://github.com/dwaxemberg), [Aaron Neyer](https://github.com/Aaronneyer), [Andrew Hennessy](https://github.com/yetanothername), and the Moonlight contributors. It began as a student project at [Case Western](http://case.edu) and [MHacks](http://mhacks.org). Get the official app from [moonlight-stream.org](https://moonlight-stream.org).
+
+This fork is not affiliated with or supported by the Moonlight project. Please report problems with this build here, not upstream.
