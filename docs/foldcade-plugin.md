@@ -38,19 +38,24 @@ The bottom screen is a Jetpack Compose UI in `com.limelight.foldcade` (Kotlin an
 Landscape puts a rail of quick tiles beside the keys and pad. Portrait (1080×1240) lays the tiles in a row under the pad, and turns Settings' categories into tabs across the top.
 
 - **Header:** the game, the PC, and a stats pill. The pill's dot is teal, amber or rose, judged on loss, ping and decode time against the frame budget. Frame rate does not colour it: a host sends only changed frames, so a still desktop runs slow. When the dot is amber or rose, the pill names the cause, for example "21 fps · 6% loss" (`StreamHealth`). A on the pill, or a tap, swaps the title for decode time, loss, and resolution/codec.
-- **PC keys:** Esc, Win, Alt+Tab, Alt+F4, Ctrl+Alt+Del and Type. Keys are opaque glass, so the backdrop never cuts through them. Alt+F4 and Ctrl+Alt+Del carry a small rose ring and need a hold: touch-and-hold, or hold A until the key fills. A short press shakes the key and shows "Hold to send" once. `PcShortcut` builds the strokes.
-- **Trackpad:** a glass pad with a dot grid, a light under each finger, a wheel-like scroll strip on the right, and Click and Right-click buttons, each marked with a mouse whose matching half is lit. Until first use, fingertip glyphs show Click (one dot), Right-click (two), Scroll (two and an up-down arrow) and Drag (a double-tap mark). The pad is also a D-pad target: Down from the keys lands on it, and A toggles the stick mouse. All gesture logic is in `TouchpadGesture`.
+- **PC keys:** Esc, Win, Alt+Tab, Overlay (Win+G, the PC's game overlay), Alt+F4, Ctrl+Alt+Del and Type. Keys are opaque glass, so the backdrop never cuts through them. Alt+F4 and Ctrl+Alt+Del carry a small rose ring and need a hold: touch-and-hold, or hold A until the key fills. A short press shakes the key and shows "Hold to send" once. `PcShortcut` builds the strokes.
+- **Trackpad:** a glass pad with a dot grid, a light under each finger, a wheel-like scroll strip on the right, and Click and Right-click buttons, each marked with a mouse whose matching half is lit. Fingertip glyphs show Click (one dot), Right-click (two), Scroll (two and an up-down arrow) and Drag (a double-tap mark). Each one fades only after its own gesture is used: `TouchpadGesture` reports each gesture as it happens, and the set of learned gestures is kept between sessions. The pad is also a D-pad target: Down from the keys lands on it, and A toggles the stick mouse. All gesture logic is in `TouchpadGesture`.
 - **Rail:** Mute, Stick mouse, Settings and End.
   - Mute is this device's media volume; unmuting at volume 0 raises it to a quarter, and a mute the companion set is undone when the session ends.
-  - Stick mouse is Moonlight's controller mouse emulation.
+  - Stick mouse is Moonlight's controller mouse emulation. Turning it on with the controller hands the controller back to the game, since only the game's controller moves the pointer, and the game's screen then shows "Stick mouse on · Hold Start to stop". Turning it off leaves the controller where it is.
   - On is teal: the tile keeps its card, and its symbol, label and a 1.5dp edge turn teal. The focus colours mean focus, and fill only the Apply pill.
   - Settings shows an amber dot while a change waits for a restart.
+- **Messages** are in Foldcade's dialog style, each button wearing its controller button. A Quit the PC refused shows "Game didn't quit · Your PC kept it running." with [B Disconnect] and [A Try again]. A settings restart that cannot open the new stream shows "Couldn't restart the stream", and the session ends when it is dismissed. After a message, focus returns to the End sheet's Quit, the deck's End tile, or Esc.
 - **End** opens two cards. **Disconnect** (an exit arrow, teal) leaves the game running and is focused first. **Quit game** (Foldcade's power verb, rose) needs a hold. The deck's End tile wears the same exit arrow, so the power mark belongs only to Quit.
 
 ### Typing
 
 - **By touch:** Type opens Android's keyboard. A short trackpad sits above it, so clicking and scrolling need no closing, with a "Take controller" chip on it, and below that a strip of Esc, Tab, Erase, Enter and Done.
-- **With the controller:** while the companion owns the controller, Type opens Foldcade's controller keyboard instead (adapted from Foldcade's MIT `ControllerKeyboard`). `PcKeyboard` sends each key to the PC as it is pressed. Foldcade's bindings hold: A presses the focused key, X erases, Y types a space, L1 and R1 move the caret, L2 steps Shift (one capital, then caps lock), Start is Done, B closes, and R2 is Enter. The chip row gives Esc, Tab and Enter.
+- **With the controller:** while the companion owns the controller, Type opens Foldcade's controller keyboard instead (adapted from Foldcade's MIT `ControllerKeyboard`). `PcKeyboard` sends each key to the PC as it is pressed. Foldcade's bindings hold: A presses the focused key, X erases, Y types a space, L1 and R1 move the caret, L2 steps Shift (one capital, then caps lock), Start is Done, B closes, and R2 is Enter.
+  - **Chips:** Esc · Tab · Ctrl · Alt · ← ↑ ↓ → · F1–F12. Ctrl and Alt latch for the next key and light while latched; with one latched, a letter goes out as its key (Ctrl+A, not "a"). F1–F12 swaps the number row for F-keys until it is pressed again.
+  - **Keys:** each mark appears once, and Shift gives its partner as a PC keyboard does. The keyboard includes `` ` `` and `~` for game consoles, and `\` and `|` beside Space.
+  - **Echo:** a faint echo of what was typed sits above the keys, with latched modifiers after it ("Ctrl +"). It stays on the bottom screen, starts over after a shortcut, and is cleared when the keyboard closes.
+  - **No taps:** the keys take no taps. At twelve across, a key is about 40dp, short of a finger's 48dp, and twelve 48dp keys would not fit either orientation. "Touch keys" switches to Android's keyboard and hands the controller back.
 - **Switching:** taking the controller while Android's keyboard is up swaps it for the controller keyboard. The Thor's Back reaches the handover through `RemoteKeyboardView.dispatchKeyEventPreIme`, so the IME never takes it as "close". B closes the keyboard and keeps the controller. Handing the controller back closes the controller keyboard.
 
 ### Who has the controller
@@ -86,7 +91,8 @@ Settings › Video, Audio, Controls and Trackpad, in Foldcade's layout. Every ro
 | | Full color range | `checkbox_full_range` | |
 | | Stats on game screen | `checkbox_enable_perf_overlay` | Moonlight's own overlay on the top screen |
 | | Optimize game settings | `checkbox_enable_sops` | |
-| Audio | Speakers | `list_audio_config` | Stereo, 5.1, 7.1 |
+| Audio | Volume | the Thor's media volume | 0–100%; A mutes and unmutes |
+| | Speakers | `list_audio_config` | Stereo, 5.1, 7.1 |
 | | Play on PC too | `checkbox_host_audio` | |
 | Controls | Swap A/B and X/Y | `checkbox_flip_face_buttons` | |
 | | Stick deadzone | `seekbar_deadzone` | 0–20% |
@@ -99,6 +105,8 @@ Settings › Video, Audio, Controls and Trackpad, in Foldcade's layout. Every ro
 `checkbox_unlock_fps` is not offered, because Moonlight reads it only in its own settings screen. `checkbox_gamepad_motion_sensors` is left at Moonlight's default, because the Thor's controller has no sensors of its own.
 
 Controller behaviour:
+
+- **Leaving a row:** every row leaves to its own category: Left in landscape, Up from the first row in portrait. It never goes to the nearest one, which could switch the page.
 
 - **Choices:** Left and Right step a choice and stop at its ends. At the first value, Left goes back to the categories, and the chevron with nowhere to go fades. A cycles forward with wrap.
 - **Sliders:** they step from the value they show. On Auto, bitrate reads "20 Mbps · Auto", with the thumb at 20, and Right gives 25. A puts a slider back (Auto for bitrate). At the lowest stop, Left goes to the categories.
@@ -124,6 +132,8 @@ Kept small and additive:
 - `NvConnection` and `NvHTTP`: the per-connection request transport.
 - `app/build.gradle`: the Compose compiler plugin and Compose dependencies. `minSdk` is 23, because current AndroidX and Compose require it. Foldcade mode itself needs Android 8.
 
+A play request Foldcade Moonlight cannot start shows "Can't start the stream" in the same style on the screen it launched on, closed with A, B, Back or a tap (`ui/StartError.kt`). When the bottom screen is unavailable, the game's screen shows "Bottom screen unavailable · Playing on one screen" for a few seconds.
+
 Any session finish closes both activities, except a settings restart, which replaces only the stream activity. Host/network errors retain Moonlight's error message, then close both on dismissal.
 
 ## Build and test
@@ -134,7 +144,7 @@ Use the SDK/JDK requirements in the [README](../README.md#building):
 ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing, PC shortcut strokes, D-pad focus geometry, `NavHost` traps and pending focus, the controller keyboard's layout and bindings, bitrate stepping, settings keys and pending-restart detection, stream health, and appearance parsing.
+JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing, PC shortcut strokes, D-pad focus geometry, `NavHost` traps and pending focus, the controller keyboard's layout, bindings, sticky modifiers, F-key layer and echo, rows leaving to their own category, per-gesture hint tracking, bitrate stepping, settings keys and pending-restart detection, stream health, and appearance parsing.
 
 For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or reinstall Foldcade or official Moonlight. Read displays with `adb shell dumpsys display`, then launch the debug-only companion on the bottom display:
 
@@ -142,7 +152,7 @@ For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or 
 adb install -r app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
 adb shell am start --display <bottom-display-id> \
   -n app.foldcade.moonlight.debug/com.limelight.foldcade.CompanionPreviewActivity \
-  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|typing-owned|detail|message|restart|fresh] \
+  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|typing-owned|detail|message|quit-fail|restart|restart-fail|fresh] \
   [--es fc_category video|audio|controls|trackpad]
 ```
 
