@@ -42,3 +42,5 @@ app/.externalNativeBuild/
 
 # NDK stuff
 .cxx/
+# Kotlin build cache
+.kotlin/
