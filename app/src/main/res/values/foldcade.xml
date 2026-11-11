@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="foldcade_connecting">Connecting…</string>
+    <string name="foldcade_touchpad">PC touchpad</string>
+    <string name="foldcade_touchpad_hint">Move a finger to point\nTap to click · Two fingers to scroll\nTwo-finger tap to right-click\nDouble-tap and hold to drag</string>
+    <string name="foldcade_keyboard">Keyboard</string>
+    <string name="foldcade_hide_keyboard">Hide keyboard</string>
+    <string name="foldcade_disconnect">Disconnect</string>
+    <string name="foldcade_quit">Quit game</string>
+    <string name="foldcade_disconnect_confirm">Disconnect?</string>
+    <string name="foldcade_disconnect_detail">The game will keep running on your computer.</string>
+    <string name="foldcade_quit_confirm">Quit game?</string>
+    <string name="foldcade_quit_detail">This closes the game on your computer. Unsaved progress may be lost.</string>
+    <style name="FoldcadeCompanionTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#A9C7EF</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#10141A</item>
+    </style>
+</resources>
