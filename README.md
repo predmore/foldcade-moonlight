@@ -10,7 +10,7 @@ Moonlight streams games from a computer running [Sunshine](https://github.com/Li
 - Reuse the computers Foldcade has already paired, so you don't pair twice.
 - Start from Foldcade's Moonlight library and return to it.
 
-The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen provides a touchpad, keyboard, live stats, disconnect, and confirmed game quit. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, testing, and release setup.
+The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen is a companion in Foldcade's own look: a trackpad with a scroll strip, PC keys (Esc, Start, Alt+Tab, and held Alt+F4 and Ctrl+Alt+Del), typing, live stats, mute, the controller as a mouse, stream settings with apply-and-restart, and a clear choice between Disconnect and a held Quit. The Thor's Back button hands the controller between the game and the companion. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, controls, testing, and release setup.
 
 ## Status
 
@@ -21,7 +21,8 @@ The APK plugin implements Foldcade’s shared-pairing broker and dual-screen str
 | App name | Foldcade Moonlight |
 | APK plugin | Protocol 1, Moonlight platform, both displays |
 | Pairing | Foldcade broker in plugin mode; upstream pairing in standalone mode |
-| Companion | Touchpad, keyboard, live stats, disconnect, quit |
+| Companion | Compose, Foldcade's look; trackpad, PC keys, typing, stats, settings, Disconnect or Quit; fully controller-driven |
+| Minimum Android | 6.0 (API 23) for the app; 8.0 for Foldcade mode |
 
 It installs next to the official Moonlight app (`com.limelight`) and does not replace it. A compatible Foldcade build can discover it in Settings › Plugins and launch Foldcade-paired games after sharing is enabled. Opening its own launcher icon still uses the standalone Moonlight UI. A debug-only companion preview supports device QA without a paired PC.
 
@@ -44,7 +45,7 @@ Set `ANDROID_HOME` to your SDK root, or put `sdk.dir=` in a `local.properties` f
 
 The APK is written to `app/build/outputs/apk/nonRoot/debug/`. Lint runs with `./gradlew :app:lintNonRootDebug`. JVM tests run with `./gradlew :app:testNonRootDebugUnitTest`. CI runs the build, lint, and tests on every pull request and push to `main`.
 
-The `root` flavor targets Android 7.1 and older rooted devices. It is kept from upstream, but the Thor uses `nonRoot`.
+The `root` flavor targets Android 7.1 and older rooted devices (6.0 and later, since the companion's AndroidX libraries need API 23). It is kept from upstream, but the Thor uses `nonRoot`.
 
 ## Staying current with upstream
 
@@ -63,6 +64,8 @@ Foldcade Moonlight is licensed under the [GNU General Public License v3.0](LICEN
 - **Using Foldcade code here:** Foldcade is [MIT](https://github.com/predmore/foldcade/blob/main/LICENSE). MIT code can be included in this GPL project. Keep Foldcade's MIT copyright and permission notice with what you copy.
 - **Using this code in Foldcade:** You can't copy GPL code from here into Foldcade's MIT codebase. Foldcade and this app stay separate programs that talk through Android's documented interfaces: intents, shortcuts, and content providers. This keeps Foldcade MIT.
 - **Submodules:** `moonlight-common-c` and its own submodules keep their licenses.
+- **Foldcade art and code in the companion:** its symbol icons and parts of its Compose components are copied or adapted from Foldcade under the MIT license. Foldcade's copyright and permission notice is in [`app/src/main/assets/licenses/foldcade-MIT.txt`](app/src/main/assets/licenses/foldcade-MIT.txt), and the files name it. See [NOTICE](NOTICE).
+- **Nunito:** the companion's font is under the SIL Open Font License, shipped as [`app/src/main/assets/licenses/OFL-Nunito.txt`](app/src/main/assets/licenses/OFL-Nunito.txt).
 
 If you distribute an APK, the GPL requires you to offer its complete source code too. One way is to publish it as a release in this repository, tagged at the commit it was built from.
 
