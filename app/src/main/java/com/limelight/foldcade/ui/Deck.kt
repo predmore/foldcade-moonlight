@@ -367,16 +367,12 @@ private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, mod
     Box(modifier, contentAlignment = Alignment.CenterStart) {
         // The game has the controller: offer it here. Tapping is a deliberate choice too.
         if (owned < 1f) Row(Modifier.fillMaxWidth().graphicsLayer { alpha = 1f - owned }, verticalAlignment = Alignment.CenterVertically) {
-            TakeController(actions)
+            // Until Back has been used once, the one Back chip is lit, rather than a second chip saying the same.
+            TakeController(actions, teach = !ui.switchLearned)
             // The stick is the mouse: say so, and how it stops, where the player looks for state.
             if (ui.padMouse) {
                 Gap(width = 12.dp)
                 StickMouseChip()
-            }
-            // Until Back has been used once: the controller moves between the screens with it.
-            else if (!ui.switchLearned) {
-                Spacer(Modifier.weight(1f))
-                SwitchScreensChip()
             }
         }
         if (owned > 0f) Row(
@@ -424,10 +420,24 @@ private fun refusalTip(nav: NavHost): Boolean {
  * touch area at least 48dp tall however small the words.
  */
 @Composable
-private fun TakeController(actions: CompanionActions, modifier: Modifier = Modifier) {
+private fun TakeController(actions: CompanionActions, modifier: Modifier = Modifier, teach: Boolean = false) {
     val fold = LocalFold.current
+    val lit by eased(if (teach) 1f else 0f)
     TapTarget({ actions.takeController(true) }, "Take controller", modifier) {
-        Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+        Row(
+            Modifier
+                .drawBehind {
+                    if (lit > 0f) {
+                        val corner = CornerRadius(size.height / 2f)
+                        drawRoundRect(fold.ink.copy(alpha = 0.08f * lit), cornerRadius = corner)
+                        drawRoundRect(fold.focus.copy(alpha = 0.6f * lit), cornerRadius = corner, style = Stroke(1.5.dp.toPx()))
+                    }
+                }
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+        }
     }
 }
 
@@ -443,20 +453,6 @@ internal fun TapTarget(onTap: () -> Unit, description: String, modifier: Modifie
             .pointerInput(Unit) { detectTapGestures { tap() } },
         contentAlignment = Alignment.Center,
     ) { content() }
-}
-
-/** Shown until the player first uses Back: the button that moves the controller between screens. */
-@Composable
-private fun SwitchScreensChip() {
-    val fold = LocalFold.current
-    Row(
-        Modifier
-            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
-            .padding(horizontal = 12.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Hint(R.drawable.fc_ic_btn_back, "Switch screens", fold.hint.copy(color = fold.ink))
-    }
 }
 
 /** Teal, as on is: the stick is the PC's mouse until Start is held. */

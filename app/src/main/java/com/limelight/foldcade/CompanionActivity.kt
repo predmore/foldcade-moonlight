@@ -213,7 +213,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
 
     override fun onSessionChanged() = refresh()
 
-    /** The first use of Back retires the deck's "Switch screens" hint for good. */
+    /** The first use of Back retires the lit "Take controller" chip for good. */
     override fun onSwitchUsed() {
         if (ui.switchLearned) return
         ui.switchLearned = true

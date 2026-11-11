@@ -65,7 +65,7 @@ The game owns the controller. Every key and stick motion that reaches either win
 
 While the companion owns it:
 
-- Until the player first uses Back, the deck's footer carries a "[Back] Switch screens" chip while the game has the controller.
+- Until the player first uses Back, the footer's "[Back] Take controller" chip is lit with a focus-coloured edge while the game has the controller. One chip teaches Back, rather than two saying the same.
 - The screen's edge wears the focus ring's light, the focused control has the ring, and the footer shows an amber "Game input paused" chip with hints.
 - The game's screen shows "Controller on bottom screen · [Back] Return".
 - The D-pad (keys or hat) and the left stick move focus, with repeat. A selects, or holds for the hold keys. B goes back a level, and on the deck returns the controller. L1 and R1 page through Settings. Start opens and closes Settings. Back returns the controller from anywhere.
