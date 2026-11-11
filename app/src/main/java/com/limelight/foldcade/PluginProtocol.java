@@ -11,6 +11,8 @@ public final class PluginProtocol {
     public static final String EXTRA = "app.foldcade.plugin.extra.";
     public static final String GAMESTREAM = "app.foldcade.gamestream.extra.";
     static final String SESSION = "com.limelight.foldcade.SESSION";
+    /** The stream generation a stream activity's intent was made for; see {@link StreamGate}. */
+    static final String GENERATION = "com.limelight.foldcade.GENERATION";
     private static final Set<String> PATHS = Set.of("serverinfo", "applist", "launch", "resume", "cancel");
 
     private PluginProtocol() { }

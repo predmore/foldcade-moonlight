@@ -129,19 +129,26 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         return body;
     }
 
-    /**
-     * The transport for a stream being created now. It works until the stream is replaced or the
-     * game is quit; after that its requests are refused, so a stopped stream cannot launch.
-     */
-    /** The current stream generation, for logs and the debug race driver. */
+    /** The current stream generation, for stream intents, logs and the debug race driver. */
     int gateGeneration() { return gate.current(); }
 
-    NvHTTP.RequestTransport transport() {
-        final int generation = gate.current();
+    /**
+     * Admits a stream activity being created, or refuses it (null). Its intent names the generation
+     * it was opened for: one queued before a Quit, or for a stream since replaced, is stale, and
+     * finishes before it makes a connection. The transport works until the stream is replaced or
+     * the game is quit; after that its requests are refused, so a stopped stream cannot launch.
+     */
+    NvHTTP.RequestTransport admitStream(Intent intent) {
+        final int generation = intent.getIntExtra(PluginProtocol.GENERATION, -1);
+        if (ended || quitPending || !gate.admits(generation)) {
+            Log.i("Foldcade", "Refused a stream opened for generation " + generation + " (current " + gate.current()
+                    + (quitPending ? ", quitting" : "") + ")");
+            return null;
+        }
         return gate.transport((path, query) -> {
             Log.d("Foldcade", "Stream generation " + generation + " sends " + path);
             return request(path, query);
-        });
+        }, generation);
     }
 
     static FoldcadeSession find(Intent intent) {
@@ -279,20 +286,21 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         old.finish();
         new Thread(() -> {
             if (oldConnection != null) oldConnection.stop();
-            try {
-                // A request already on its way finishes before the new stream negotiates its key.
-                if (!gate.drain(DRAIN_MS)) android.util.Log.w("Foldcade", "A replaced stream's request is still outstanding");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            android.util.Log.i("Foldcade", "Restarting the stream as generation " + generation);
-            main.post(this::openReplacementStream);
+            // A request already on its way finishes before the new stream negotiates its key. One
+            // that never comes back could still land after it, so then the restart fails instead.
+            gate.drainThen(DRAIN_MS, () -> {
+                Log.i("Foldcade", "Restarting the stream as generation " + generation);
+                main.post(() -> openReplacementStream(generation));
+            }, () -> {
+                Log.w("Foldcade", "A replaced stream's request is still outstanding; the restart fails");
+                main.post(this::restartFailed);
+            });
         }, "Foldcade-plugin-restart").start();
     }
 
-    private void openReplacementStream() {
+    private void openReplacementStream(int generation) {
         // A Quit while the old stream was stopping cancels the restart: nothing may start the game again.
-        if (ended || quitPending || !restarting) {
+        if (ended || quitPending || !restarting || !gate.admits(generation)) {
             Log.i("Foldcade", "Restart cancelled; no replacement stream opens");
             return;
         }
@@ -300,14 +308,20 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         // Foldcade sessions only exist on Android 8 and later; see FoldcadePlayActivity.
         if (context == null || android.os.Build.VERSION.SDK_INT < 26) { end(); return; }
         try {
-            Intent intent = new Intent(streamIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            Intent intent = new Intent(streamIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                    .putExtra(PluginProtocol.GENERATION, generation);
             context.startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(topDisplay).toBundle());
         } catch (RuntimeException e) {
-            // The game still runs on the PC. The companion says so, and the session ends when the
-            // player has read it.
-            restarting = false;
-            companion.showRestartFailed();
+            restartFailed();
         }
+    }
+
+    /** The game still runs on the PC. The companion says so, and the session ends when the player has read it. */
+    private void restartFailed() {
+        if (ended || !restarting) return;
+        restarting = false;
+        if (companion != null) companion.showRestartFailed();
+        else end();
     }
 
     // ---- Who has the controller ----
@@ -319,20 +333,26 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         if (ended || owns == router.companionOwns()) return;
         // No companion, no one to take the controller (one screen, or the companion was refused).
         if (!router.setCompanionOwns(owns)) return;
-        if (owns) {
-            // Nothing the game was holding stays held on the PC: keyboard keys and modifiers come up,
-            // and the controllers, sensors included, go quiet until the controller comes back.
-            for (Long id : router.releaseHeldByGame()) {
-                KeyEvent down = heldByGame.remove(id);
-                if (down == null || stream == null) continue;
-                Log.i("Foldcade", "Handover: released " + KeyEvent.keyCodeToString(down.getKeyCode()) + " for the game");
-                stream.deliverKey(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
-            }
-            heldByGame.clear();
-        }
+        // Nothing the game was holding stays held on the PC: keyboard keys and modifiers come up,
+        // and the controllers, sensors included, go quiet until the controller comes back.
+        if (owns) releaseKeysHeldByGame("Handover");
         if (stream != null) stream.suspendGameInput(owns);
         updatePill();
         notifyCompanion();
+    }
+
+    /**
+     * Releases on the PC every key the game holds now. Each one's repeats and physical release are
+     * swallowed afterwards ({@link ControllerRouter#releaseHeldByGame}), so nothing presses it again.
+     */
+    private void releaseKeysHeldByGame(String why) {
+        for (Long id : router.releaseHeldByGame()) {
+            KeyEvent down = heldByGame.remove(id);
+            if (down == null || stream == null) continue;
+            Log.i("Foldcade", why + ": released " + KeyEvent.keyCodeToString(down.getKeyCode()) + " for the game");
+            stream.deliverKey(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
+        }
+        heldByGame.clear();
     }
 
     /**
@@ -411,13 +431,21 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     void confirmDisconnect() {
         if (companion != null) companion.confirmDisconnect();
-        else if (stream != null) stream.showEndPanel(this::end, this::quitGame);
+        else if (stream != null && !ended) {
+            // The panel takes every key while it is up, releases included: let go of what the game
+            // holds first, or a key held as it opens would stay down on the PC.
+            releaseKeysHeldByGame("End panel");
+            stream.showEndPanel(this::end, this::quitGame);
+        }
     }
 
     boolean quitPending() { return quitPending; }
 
     /** What the companion says when the PC answered but kept the game running. */
     static final String QUIT_KEPT = "Your PC kept it running.";
+
+    /** What it says when a stopped stream's request never came back, so the quit was not sent. */
+    static final String QUIT_UNSENT = "The stream didn't stop in time, so the quit wasn't sent.";
 
     void quitGame() {
         if (ended || quitPending) return;
@@ -445,22 +473,23 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         }
         notifyCompanion();
         new Thread(() -> {
-            String failure = null;
             if (starting != null) starting.stop();
-            try {
-                // Any launch a set-aside stream already sent comes back before the cancel goes out.
-                if (!gate.drain(DRAIN_MS)) android.util.Log.w("Foldcade", "A stream's request is still outstanding before Quit");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            android.util.Log.i("Foldcade", "Quitting the game");
-            try {
-                NvHTTP http = new NvHTTP(host.activeAddress, host.httpsPort, null, null, null, broker);
-                if (!http.quitApp()) failure = QUIT_KEPT;
-            } catch (Exception e) {
-                failure = e instanceof PluginProtocol.BrokerException ? e.getMessage() : QUIT_KEPT;
-            }
-            final String message = failure;
+            // Any launch a set-aside stream already sent comes back before the cancel goes out. One
+            // that never comes back could start the game after the cancel, so then nothing is sent.
+            final String[] failure = { null };
+            gate.drainThen(DRAIN_MS, () -> {
+                Log.i("Foldcade", "Quitting the game");
+                try {
+                    NvHTTP http = new NvHTTP(host.activeAddress, host.httpsPort, null, null, null, broker);
+                    if (!http.quitApp()) failure[0] = QUIT_KEPT;
+                } catch (Exception e) {
+                    failure[0] = e instanceof PluginProtocol.BrokerException ? e.getMessage() : QUIT_KEPT;
+                }
+            }, () -> {
+                Log.w("Foldcade", "A stream's request is still outstanding; the quit is not sent");
+                failure[0] = QUIT_UNSENT;
+            });
+            final String message = failure[0];
             main.post(() -> {
                 quitPending = false;
                 if (ended) return;

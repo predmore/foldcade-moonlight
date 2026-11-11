@@ -62,8 +62,9 @@ import com.limelight.foldcade.Appearance
 /**
  * Ending a session played on one screen, where there is no companion: the End choice drawn in the
  * companion's style over the stream, in place of a stock dialog. A is Disconnect, the safe choice
- * and first in focus; Quit game takes a hold, of A or a finger. B or Back closes it. The stream
- * window hands it every key while it is up ([key]).
+ * and first in focus; Quit game takes a hold, of A or a finger. B or Back closes it. An
+ * accessibility service's activation of Quit, which cannot hold, asks "Quit game?" first, as the
+ * companion does. The stream window hands it every key while it is up ([key]).
  */
 class StreamEndPanel private constructor(
     private val activity: Activity,
@@ -73,6 +74,8 @@ class StreamEndPanel private constructor(
 ) {
     private var focus by mutableIntStateOf(0)
     private var holdingA by mutableStateOf(false)
+    /** "Quit game?" is up, in place of the two choices. */
+    private var confirmingQuit by mutableStateOf(false)
     private val owner = PanelOwner()
     private val view = ComposeView(activity)
 
@@ -104,6 +107,16 @@ class StreamEndPanel private constructor(
         val down = event.action == KeyEvent.ACTION_DOWN
         when (event.keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE, KeyEvent.KEYCODE_POWER -> return false
+        }
+        if (confirmingQuit) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER ->
+                    if (down && event.repeatCount == 0) choose(onQuit)
+                KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> if (!down) confirmingQuit = false
+            }
+            return true
+        }
+        when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> if (down) focus = 0
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (down) focus = 1
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
@@ -130,9 +143,18 @@ class StreamEndPanel private constructor(
         Box(
             Modifier.fillMaxSize()
                 .drawBehind { drawRect(fold.background.copy(alpha = 0.78f * shown)) }
-                .pointerInput(Unit) { detectTapGestures { dismiss() } },
+                .pointerInput(Unit) { detectTapGestures { if (confirmingQuit) confirmingQuit = false else dismiss() } },
             contentAlignment = Alignment.Center,
         ) {
+            if (confirmingQuit) {
+                MessagePanel(
+                    title = "Quit game?", body = "It closes the game on your PC.", primary = "Quit", secondary = "Cancel",
+                    primaryFocused = true, secondaryFocused = false,
+                    onPrimary = { choose(onQuit) }, onSecondary = { confirmingQuit = false },
+                    modifier = Modifier.pointerInput(Unit) { detectTapGestures { } },
+                )
+                return@Box
+            }
             val shape = RoundedCornerShape(fold.cardCorner)
             Column(
                 Modifier
@@ -191,8 +213,11 @@ class StreamEndPanel private constructor(
                 .semantics(mergeDescendants = true) {
                     role = Role.Button
                     contentDescription = label
-                    // An accessibility activation never completes a hold: it moves focus there instead.
-                    onClick { if (hold) focus = 1 else onDone(); true }
+                    // An accessibility activation cannot hold, so for Quit it asks first instead.
+                    onClick(label = if (hold) "Ask to quit" else null) {
+                        if (hold) { focus = 1; confirmingQuit = true } else onDone()
+                        true
+                    }
                 }
                 .pointerInput(hold) {
                     detectTapGestures(

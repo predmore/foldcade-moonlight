@@ -114,4 +114,22 @@ public class ControllerRouterTest {
         assertEquals(DROP, router.key(BACK, true, 2, true));
         assertEquals(DROP, router.key(BACK, false, 0, true));
     }
+
+    @Test public void theOneScreenEndPanelReleasesWhatTheGameHoldsAndItsRepeatsStaySwallowed() {
+        ControllerRouter alone = new ControllerRouter();
+        long w = ControllerRouter.keyId(3, 51), shift = ControllerRouter.keyId(3, 59);
+        assertEquals(GAME, alone.key(w, true, 0, false));
+        assertEquals(GAME, alone.key(shift, true, 0, false));
+        // The panel opens: the session sends the game a release for each.
+        List<Long> released = alone.releaseHeldByGame();
+        assertTrue(released.contains(w) && released.contains(shift) && released.size() == 2);
+        // While it is up the panel takes W's release itself, so the router never sees it. Shift is
+        // still held when it closes: its repeats never press it again on the PC, nor does its release.
+        assertEquals(DROP, alone.key(shift, true, 3, false));
+        assertEquals(DROP, alone.key(shift, false, 0, false));
+        // W's next press starts over, since its release went to the panel.
+        assertEquals(GAME, alone.key(w, true, 0, false));
+        assertEquals(GAME, alone.key(w, true, 1, false));
+        assertEquals(GAME, alone.key(w, false, 0, false));
+    }
 }

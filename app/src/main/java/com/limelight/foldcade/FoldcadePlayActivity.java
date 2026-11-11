@@ -59,6 +59,7 @@ public final class FoldcadePlayActivity extends androidx.activity.ComponentActiv
             Intent stream = new Intent(this, FoldcadeStreamActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                     .putExtra(PluginProtocol.SESSION, pendingSession.id)
+                    .putExtra(PluginProtocol.GENERATION, pendingSession.gateGeneration())
                     .putExtra(Game.EXTRA_HOST, host.activeAddress.address)
                     .putExtra(Game.EXTRA_PORT, host.activeAddress.port)
                     .putExtra(Game.EXTRA_HTTPS_PORT, host.httpsPort)

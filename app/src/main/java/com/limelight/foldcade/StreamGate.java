@@ -39,9 +39,20 @@ public final class StreamGate {
     /** Makes every transport handed out so far stale. Returns the new generation. */
     public synchronized int advance() { return ++generation; }
 
-    /** A transport that sends through [requests] for as long as its generation is current. */
+    /** Whether a stream meant for [generation] may still open: nothing has replaced it or quit since. */
+    public synchronized boolean admits(int generation) { return generation == this.generation; }
+
+    /** A transport for the current generation. */
     public com.limelight.nvstream.http.NvHTTP.RequestTransport transport(Requests requests) {
-        final int mine = current();
+        return transport(requests, current());
+    }
+
+    /**
+     * A transport that sends through [requests] for as long as [mine] is current. A stream activity
+     * passes the generation its intent was made for, not the one current when it happens to be
+     * created, so one queued before a Quit can never send.
+     */
+    public com.limelight.nvstream.http.NvHTTP.RequestTransport transport(Requests requests, final int mine) {
         return (path, query) -> {
             begin(mine, path);
             try {
@@ -83,6 +94,23 @@ public final class StreamGate {
             wait(left);
         }
         return true;
+    }
+
+    /**
+     * After a stream is set aside: waits for its requests, then runs [proceed]. If one is still on
+     * its way after [timeoutMs], or the wait is interrupted, runs [blocked] instead. A request
+     * outstanding may still reach the PC, so nothing that must come after it may go ahead: not a
+     * replacement stream's key exchange, and not a Quit's cancel.
+     */
+    public void drainThen(long timeoutMs, Runnable proceed, Runnable blocked) {
+        boolean clear;
+        try {
+            clear = drain(timeoutMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            clear = false;
+        }
+        (clear ? proceed : blocked).run();
     }
 
     synchronized int inFlight() {

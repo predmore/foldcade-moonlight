@@ -25,8 +25,11 @@ public final class FoldcadeStreamActivity extends Game {
 
     @Override
     protected void onCreate(Bundle state) {
-        session = FoldcadeSession.find(getIntent());
-        if (session != null) transport = session.transport();
+        FoldcadeSession found = FoldcadeSession.find(getIntent());
+        // A stream queued before a Quit, or for a stream since replaced, finishes quietly here
+        // (prepareStream is false) without making a connection or touching the session.
+        transport = found != null ? found.admitStream(getIntent()) : null;
+        session = transport != null ? found : null;
         super.onCreate(state);
     }
 
@@ -109,14 +112,17 @@ public final class FoldcadeStreamActivity extends Game {
 
     /**
      * Ending a session with no companion: the End choice over the stream. It takes every key
-     * while it is up, and the game gets neutral input until it closes.
+     * while it is up (the session released the game's keys first). Controllers and the mouse,
+     * captured or not, are held from the PC until it closes, and the mouse can click the panel.
      */
     void showEndPanel(Runnable disconnect, Runnable quit) {
         if (endPanel != null) return;
         suspendGameInput(true);
+        suspendPointerInput(true);
         Runnable closed = () -> {
             endPanel = null;
             suspendGameInput(false);
+            suspendPointerInput(false);
         };
         endPanel = com.limelight.foldcade.ui.StreamEndPanel.show(this,
                 () -> { closed.run(); disconnect.run(); },

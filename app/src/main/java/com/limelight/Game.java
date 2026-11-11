@@ -1085,6 +1085,40 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void suspendControllerInput(boolean suspended) {
         if (controllerHandler != null) controllerHandler.setInputSuspended(suspended);
     }
+    /**
+     * Keeps mouse and other pointer input, captured or not, from the PC while a subclass shows its
+     * own controls over the stream. Suspending lets go of every mouse button and gives the pointer
+     * back to the system, so those controls can be clicked; resuming captures it again if it was.
+     */
+    protected void suspendPointerInput(boolean suspended) {
+        if (suspended == pointerInputSuspended) {
+            return;
+        }
+        pointerInputSuspended = suspended;
+        if (suspended) {
+            if (conn != null) {
+                byte[] buttons = { MouseButtonPacket.BUTTON_LEFT, MouseButtonPacket.BUTTON_RIGHT, MouseButtonPacket.BUTTON_MIDDLE,
+                        MouseButtonPacket.BUTTON_X1, MouseButtonPacket.BUTTON_X2 };
+                // A drag on the touch trackpad holds a button too, so every one comes up, not only the mouse's.
+                for (byte button : buttons) {
+                    conn.sendMouseButtonUp(button);
+                }
+            }
+            lastButtonState = 0;
+            captureBeforeSuspension = inputCaptureProvider != null && inputCaptureProvider.isCapturingEnabled();
+            if (captureBeforeSuspension) {
+                inputCaptureProvider.disableCapture();
+            }
+        }
+        else if (captureBeforeSuspension && grabbedInput && inputCaptureProvider != null) {
+            inputCaptureProvider.enableCapture();
+            if (cursorVisible) {
+                inputCaptureProvider.showCursor();
+            }
+        }
+    }
+    private boolean pointerInputSuspended, captureBeforeSuspension;
+
     /** Moonlight's controller mouse emulation, which a long Start press also toggles. */
     protected void setControllerMouse(boolean on) {
         if (controllerHandler != null) controllerHandler.setMouseEmulation(on);
@@ -1824,6 +1858,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         int eventSource = event.getSource();
+        // Controllers are suspended in ControllerHandler; everything else that points is held here.
+        if (pointerInputSuspended && (eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) == 0) {
+            return true;
+        }
         int deviceSources = event.getDevice() != null ? event.getDevice().getSources() : 0;
         if ((eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) != 0) {
             if (controllerHandler.handleMotionEvent(event)) {
