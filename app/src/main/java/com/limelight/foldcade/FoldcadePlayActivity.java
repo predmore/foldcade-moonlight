@@ -31,7 +31,7 @@ public final class FoldcadePlayActivity extends Activity {
             PluginProtocol.PlayRequest request = new PluginProtocol.PlayRequest(values);
             DisplayManager displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
             if (displays.getDisplay(request.topDisplay) == null) throw new IllegalArgumentException("The stream display is unavailable.");
-            BrokerClient broker = new BrokerClient(this, request.authority, request.hostUuid);
+            BrokerClient broker = new BrokerClient(this, request.authority, request.hostUuid, request.launchToken);
             new Thread(() -> {
                 try {
                     broker.hello();

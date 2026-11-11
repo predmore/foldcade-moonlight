@@ -31,6 +31,7 @@ public final class PluginProtocol {
             case "unknown_host": return "This computer is no longer paired in Foldcade. Open Foldcade and check its paired computers.";
             case "unreachable": return "The computer could not be reached. Check that it is awake and connected, then try again.";
             case "host_error": return "The computer could not complete the streaming request. Try again from Foldcade.";
+            case "not_launched": return "Start this game from Foldcade.";
             case "bad_request": return "The streaming request was not accepted. Update Foldcade and Foldcade Moonlight, then try again.";
             default: return "Foldcade's streaming broker is unavailable. Open Foldcade and try again.";
         }
@@ -59,13 +60,14 @@ public final class PluginProtocol {
     }
 
     public static final class PlayRequest {
-        public final String authority, title, hostUuid, hostName, appName;
+        public final String authority, title, hostUuid, hostName, appName, launchToken;
         public final int topDisplay, bottomDisplay, appId;
 
         public PlayRequest(Map<String, Object> extras) {
             if (integer(extras, EXTRA + "PROTOCOL") != 1) throw new IllegalArgumentException("Unsupported plugin protocol.");
             authority = string(extras, EXTRA + "BROKER_AUTHORITY");
             title = string(extras, EXTRA + "TITLE");
+            launchToken = string(extras, EXTRA + "LAUNCH_TOKEN");
             hostUuid = string(extras, GAMESTREAM + "HOST_UUID");
             hostName = string(extras, GAMESTREAM + "HOST_NAME");
             appName = string(extras, GAMESTREAM + "APP_NAME");

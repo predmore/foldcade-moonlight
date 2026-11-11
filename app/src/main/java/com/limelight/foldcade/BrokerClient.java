@@ -16,13 +16,14 @@ import java.util.ArrayList;
 /** No client key, certificate, or pairing state ever crosses into this process. */
 public final class BrokerClient implements NvHTTP.RequestTransport {
     private final Context context;
-    private final String authority, hostUuid;
+    private final String authority, hostUuid, launchToken;
     private final String hostPackage;
 
-    public BrokerClient(Context context, String authority, String hostUuid) throws IOException {
+    public BrokerClient(Context context, String authority, String hostUuid, String launchToken) throws IOException {
         this.context = context.getApplicationContext();
         this.authority = authority;
         this.hostUuid = hostUuid;
+        this.launchToken = launchToken;
         this.hostPackage = trustedPackage();
     }
 
@@ -92,6 +93,8 @@ public final class BrokerClient implements NvHTTP.RequestTransport {
         Bundle args = new Bundle();
         args.putString("path", path);
         if (query != null) args.putString("query", query);
+        // Only a game Foldcade started may be launched or resumed; the token proves which one.
+        if ("launch".equals(path) || "resume".equals(path)) args.putString("token", launchToken);
         Bundle reply = call("gamestream.request", hostUuid, args);
         return PluginProtocol.responseBody(reply.get("status"), reply.get("body"));
     }

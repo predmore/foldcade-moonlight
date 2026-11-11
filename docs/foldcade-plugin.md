@@ -10,12 +10,12 @@ It requires these typed extras:
 
 | Prefix | Fields |
 | --- | --- |
-| `app.foldcade.plugin.extra.` | `PROTOCOL` (int, 1), `BROKER_AUTHORITY` (String), `TITLE` (String), `TOP_DISPLAY` (int), `BOTTOM_DISPLAY` (int, or -1) |
+| `app.foldcade.plugin.extra.` | `PROTOCOL` (int, 1), `BROKER_AUTHORITY` (String), `TITLE` (String), `LAUNCH_TOKEN` (String), `TOP_DISPLAY` (int), `BOTTOM_DISPLAY` (int, or -1) |
 | `app.foldcade.gamestream.extra.` | `HOST_UUID`, `HOST_NAME`, `APP_ID` (decimal String), `APP_NAME` (all Strings) |
 
 The entry point resolves the authority with `PackageManager`. It accepts only an exported provider belonging to `app.foldcade` or `app.foldcade.debug`, with that package's `.plugins` authority. A missing or untrusted provider, invalid extras, or unavailable top display produces a clear message and finishes on dismissal. Package visibility declarations let the app find either Foldcade build.
 
-On a worker thread, `BrokerClient` calls `hello`, validates the host package and protocol, then calls `gamestream.hosts` and selects the exact `HOST_UUID`. It constructs transient `ComputerDetails` from the broker's address and ports; nothing is written to Moonlight's standalone computer database. A `not_granted` reply tells the user to enable sharing in **Foldcade › Settings › Plugins**. Host error messages intended for logs are never displayed to the user. Protocol error codes are preserved in `BrokerException`.
+On a worker thread, `BrokerClient` calls `hello`, validates the host package and protocol, then calls `gamestream.hosts` and selects the exact `HOST_UUID`. It constructs transient `ComputerDetails` from the broker's address and ports; nothing is written to Moonlight's standalone computer database. A `not_granted` reply tells the user to enable sharing in **Foldcade › Settings › Plugins**. Host error messages intended for logs are never displayed to the user. Protocol error codes are preserved in `BrokerException`. `launch` and `resume` carry the play start's `LAUNCH_TOKEN`, so Foldcade only lets the plugin start the game it chose. A PLAY intent from any other app gets `not_launched`.
 
 The stream starts on `TOP_DISPLAY`; its private session token connects the two activities in this process. The companion starts on `BOTTOM_DISPLAY` using `ActivityOptions.setLaunchDisplayId`. Display IDs are supplied and checked at runtime. With -1, a removed bottom display, or a display launch rejection, the stream runs on one screen. A second play request while a session exists is refused. If Android kills the process, an orphaned stream or companion activity finishes instead of restoring a session without its broker.
 

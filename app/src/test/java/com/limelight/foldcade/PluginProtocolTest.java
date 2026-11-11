@@ -11,6 +11,7 @@ public class PluginProtocolTest {
         values.put(PluginProtocol.EXTRA + "PROTOCOL", 1);
         values.put(PluginProtocol.EXTRA + "BROKER_AUTHORITY", "app.foldcade.debug.plugins");
         values.put(PluginProtocol.EXTRA + "TITLE", "Game");
+        values.put(PluginProtocol.EXTRA + "LAUNCH_TOKEN", "token");
         values.put(PluginProtocol.EXTRA + "TOP_DISPLAY", 0);
         values.put(PluginProtocol.EXTRA + "BOTTOM_DISPLAY", 4);
         values.put(PluginProtocol.GAMESTREAM + "HOST_UUID", "host-uuid");
