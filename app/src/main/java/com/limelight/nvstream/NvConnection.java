@@ -48,9 +48,21 @@ public class NvConnection {
     private static Semaphore connectionAllowed = new Semaphore(1);
     private final boolean isMonkey;
     private final Context appContext;
+    private final NvHTTP.RequestTransport requestTransport;
+    private volatile boolean stopped;
+    private volatile boolean ownsConnectionPermit;
 
     public NvConnection(Context appContext, ComputerDetails.AddressTuple host, int httpsPort, String uniqueId, StreamConfiguration config, LimelightCryptoProvider cryptoProvider, X509Certificate serverCert)
     {
+        this(appContext, host, httpsPort, uniqueId, config, cryptoProvider, serverCert, null);
+    }
+
+    public NvConnection(Context appContext, ComputerDetails.AddressTuple host, int httpsPort,
+                        String uniqueId, StreamConfiguration config,
+                        LimelightCryptoProvider cryptoProvider, X509Certificate serverCert,
+                        NvHTTP.RequestTransport requestTransport)
+    {
+        this.requestTransport = requestTransport;
         this.appContext = appContext;
         this.cryptoProvider = cryptoProvider;
         this.uniqueId = uniqueId;
@@ -87,18 +99,23 @@ public class NvConnection {
     }
 
     public void stop() {
+        synchronized (this) {
+            if (stopped) return;
+            stopped = true;
+        }
         // Interrupt any pending connection. This is thread-safe.
-        MoonBridge.interruptConnection();
+        if (ownsConnectionPermit) MoonBridge.interruptConnection();
 
         // Moonlight-core is not thread-safe with respect to connection start and stop, so
         // we must not invoke that functionality in parallel.
         synchronized (MoonBridge.class) {
-            MoonBridge.stopConnection();
-            MoonBridge.cleanupBridge();
+            if (ownsConnectionPermit) {
+                MoonBridge.stopConnection();
+                MoonBridge.cleanupBridge();
+                ownsConnectionPermit = false;
+                connectionAllowed.release();
+            }
         }
-
-        // Now a pending connection can be processed
-        connectionAllowed.release();
     }
 
     private InetAddress resolveServerAddress() throws IOException {
@@ -221,7 +238,8 @@ public class NvConnection {
     
     private boolean startApp() throws XmlPullParserException, IOException
     {
-        NvHTTP h = new NvHTTP(context.serverAddress, context.httpsPort, uniqueId, context.serverCert, cryptoProvider);
+        NvHTTP h = new NvHTTP(context.serverAddress, context.httpsPort, uniqueId, context.serverCert,
+                cryptoProvider, requestTransport);
 
         String serverInfo = h.getServerInfo(true);
         
@@ -391,6 +409,7 @@ public class NvConnection {
                 context.connListener.stageStarting(appName);
 
                 try {
+                    if (stopped) return;
                     if (!startApp()) {
                         context.connListener.stageFailed(appName, 0, 0);
                         return;
@@ -408,6 +427,8 @@ public class NvConnection {
                     return;
                 }
 
+                if (stopped) return;
+
                 ByteBuffer ib = ByteBuffer.allocate(16);
                 ib.putInt(context.riKeyId);
 
@@ -424,6 +445,12 @@ public class NvConnection {
                 // Moonlight-core is not thread-safe with respect to connection start and stop, so
                 // we must not invoke that functionality in parallel.
                 synchronized (MoonBridge.class) {
+                    // A broker launch may complete after the user has disconnected.
+                    if (stopped) {
+                        connectionAllowed.release();
+                        return;
+                    }
+                    ownsConnectionPermit = true;
                     MoonBridge.setupBridge(videoDecoderRenderer, audioRenderer, connectionListener);
                     int ret = MoonBridge.startConnection(context.serverAddress.address,
                             context.serverAppVersion, context.serverGfeVersion, context.rtspSessionUrl,
@@ -442,6 +469,8 @@ public class NvConnection {
                         // LiStartConnection() failed, so the caller is not expected
                         // to stop the connection themselves. We need to release their
                         // semaphore count for them.
+                        MoonBridge.cleanupBridge();
+                        ownsConnectionPermit = false;
                         connectionAllowed.release();
                         return;
                     }

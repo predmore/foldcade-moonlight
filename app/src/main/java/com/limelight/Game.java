@@ -185,6 +185,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        if (!prepareStream()) {
+            finish();
+            return;
+        }
+
         UiHelper.setLocale(this);
 
         // We don't want a title bar
@@ -217,6 +222,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
+        configureStreamPreferences(prefConfig);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
 
         // Enter landscape unless we're on a square screen
@@ -485,9 +491,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         conn = new NvConnection(getApplicationContext(),
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
-                PlatformBinding.getCryptoProvider(this), serverCert);
+                getRequestTransport() == null ? PlatformBinding.getCryptoProvider(this) : null,
+                serverCert, getRequestTransport());
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
+        onConnectionCreated(conn);
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
@@ -748,7 +756,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // With Android native pointer capture, capture is lost when focus is lost,
         // so it must be requested again when focus is regained.
-        inputCaptureProvider.onWindowFocusChanged(hasFocus);
+        if (inputCaptureProvider != null) {
+            inputCaptureProvider.onWindowFocusChanged(hasFocus);
+        }
     }
 
     private boolean isRefreshRateEqualMatch(float refreshRate) {
@@ -1057,8 +1067,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         // Destroy the capture provider
-        inputCaptureProvider.destroy();
+        if (inputCaptureProvider != null) {
+            inputCaptureProvider.destroy();
+        }
     }
+
+    // Small extension points for the separate Foldcade entry point.
+    protected boolean prepareStream() { return true; }
+    protected void configureStreamPreferences(PreferenceConfiguration preferences) { }
+    protected NvHTTP.RequestTransport getRequestTransport() { return null; }
+    protected void onConnectionCreated(NvConnection connection) { }
 
     @Override
     protected void onPause() {
@@ -1069,7 +1087,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             }
 
             // Ungrab input to prevent further input device notifications
-            setInputGrabState(false);
+            if (inputCaptureProvider != null) {
+                setInputGrabState(false);
+            }
         }
 
         super.onPause();
