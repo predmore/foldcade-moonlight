@@ -14,6 +14,8 @@ public enum PcShortcut {
     /** The Windows key on its own: opens Start. */
     START_MENU(false, 0x5B),
     ALT_TAB(false, 0xA4, 0x09),
+    /** Win+G: the PC's game overlay (the Xbox Game Bar). */
+    GAME_OVERLAY(false, 0x5B, 0x47),
     /** Closes the focused window on the PC, so the companion asks for a hold. */
     ALT_F4(true, 0xA4, 0x73),
     /** Opens the PC's security screen, so the companion asks for a hold. */
@@ -52,7 +54,25 @@ public enum PcShortcut {
         }
     }
 
-    public List<Step> steps() {
+    public List<Step> steps() { return steps(keys); }
+
+    /**
+     * Any key with modifiers held around it: [modifiers] is {@link #CTRL}, {@link #ALT},
+     * {@link #SHIFT} and {@link #META} or'd. They go down in that order and up in reverse.
+     */
+    public static List<Step> stroke(int vk, int modifiers) {
+        List<Integer> keys = new ArrayList<>();
+        if ((modifiers & CTRL) != 0) keys.add(0xA2);
+        if ((modifiers & ALT) != 0) keys.add(0xA4);
+        if ((modifiers & SHIFT) != 0) keys.add(0xA0);
+        if ((modifiers & META) != 0) keys.add(0x5B);
+        keys.add(vk);
+        int[] all = new int[keys.size()];
+        for (int i = 0; i < all.length; i++) all[i] = keys.get(i);
+        return steps(all);
+    }
+
+    private static List<Step> steps(int[] keys) {
         List<Step> steps = new ArrayList<>();
         byte held = 0;
         for (int i = 0; i < keys.length - 1; i++) {

@@ -1,8 +1,7 @@
 package com.limelight.foldcade;
 
-import android.app.Activity;
 import android.app.ActivityOptions;
-import android.app.AlertDialog;
+import android.view.KeyEvent;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
@@ -16,8 +15,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** The only exported release plugin entry point. */
-public final class FoldcadePlayActivity extends Activity {
+public final class FoldcadePlayActivity extends androidx.activity.ComponentActivity {
     private FoldcadeSession pendingSession;
+    private boolean failed;
 
     @Override
     @SuppressWarnings("deprecation")
@@ -76,10 +76,25 @@ public final class FoldcadePlayActivity extends Activity {
         }
     }
 
+    /** Shows why the play request cannot start, in the companion's style, on the screen it launched on. */
     private void fail(String message) {
-        if (isFinishing() || isDestroyed()) return;
-        new AlertDialog.Builder(this).setTitle("Unable to start streaming")
-                .setMessage(message).setPositiveButton(android.R.string.ok, (dialog, which) -> finish())
-                .setOnCancelListener(dialog -> finish()).show();
+        if (isFinishing() || isDestroyed() || failed) return;
+        failed = true;
+        com.limelight.foldcade.ui.StartError.show(this, message, this::finish);
+    }
+
+    /** The message closes with A, B, Back, Enter or Escape, from a controller or a keyboard. */
+    // AndroidX inherits this public Activity callback through its restricted core shim.
+    @android.annotation.SuppressLint("RestrictedApi")
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!failed) return super.dispatchKeyEvent(event);
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_BUTTON_A: case KeyEvent.KEYCODE_BUTTON_B: case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_ENTER: case KeyEvent.KEYCODE_ESCAPE: case KeyEvent.KEYCODE_DPAD_CENTER:
+                if (event.getAction() == KeyEvent.ACTION_UP) finish();
+                return true;
+            default:
+                return super.dispatchKeyEvent(event);
+        }
     }
 }

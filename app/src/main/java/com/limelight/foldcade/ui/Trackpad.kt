@@ -61,8 +61,8 @@ internal interface PadButtons { fun button(right: Boolean, down: Boolean) }
 internal fun Trackpad(
     gesture: TouchpadGesture,
     buttons: PadButtons,
-    showHints: Boolean,
-    onFirstUse: () -> Unit,
+    /** Gestures already used: their hints are gone. The rest stay until each is used. */
+    learned: Set<TouchpadGesture.Gesture>,
     description: String,
     modifier: Modifier = Modifier,
     /** Typing's short pad: no hints and no click buttons, a narrower strip. */
@@ -75,7 +75,6 @@ internal fun Trackpad(
     var lastFingers by remember { mutableStateOf<List<Offset>>(emptyList()) }
     val glow = remember { androidx.compose.animation.core.Animatable(0f) }
     var tapJob by remember { mutableStateOf<Job?>(null) }
-    val hints by eased(if (showHints) 1f else 0f, fold.durationIsland)
     val shape = RoundedCornerShape(22.dp)
 
     Column(
@@ -143,7 +142,6 @@ internal fun Trackpad(
                                     delay(TouchpadGesture.DOUBLE_TAP_MS)
                                     gesture.tapTimeout()
                                 }
-                                onFirstUse()
                             }
                             MotionEvent.ACTION_CANCEL -> gesture.cancel()
                         }
@@ -159,16 +157,16 @@ internal fun Trackpad(
                         true
                     },
             ) {
-                if (hints > 0f && !compact) {
+                if (!compact) {
                     Row(
-                        Modifier.align(Alignment.BottomStart).padding(14.dp).graphicsLayer { alpha = hints },
+                        Modifier.align(Alignment.BottomStart).padding(14.dp),
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        PadHint(Fingers.One, "Click")
-                        PadHint(Fingers.Two, "Right-click")
-                        PadHint(Fingers.TwoMoving, "Scroll")
-                        PadHint(Fingers.DoubleTap, "Drag")
+                        PadHint(Fingers.One, "Click", TouchpadGesture.Gesture.CLICK !in learned)
+                        PadHint(Fingers.Two, "Right-click", TouchpadGesture.Gesture.RIGHT_CLICK !in learned)
+                        PadHint(Fingers.TwoMoving, "Scroll", TouchpadGesture.Gesture.SCROLL !in learned)
+                        PadHint(Fingers.DoubleTap, "Drag", TouchpadGesture.Gesture.DRAG !in learned)
                     }
                 }
             }
@@ -192,9 +190,12 @@ internal enum class Fingers { One, Two, TwoMoving, DoubleTap }
  * the pad's first use.
  */
 @Composable
-private fun PadHint(fingers: Fingers, label: String) {
+private fun PadHint(fingers: Fingers, label: String, needed: Boolean) {
     val fold = LocalFold.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // A hint fades once its own gesture has been used, and leaves the row when it has gone.
+    val shown by eased(if (needed) 1f else 0f, fold.durationIsland)
+    if (shown <= 0f && !needed) return
+    Row(Modifier.graphicsLayer { alpha = shown }, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(if (fingers == Fingers.One || fingers == Fingers.DoubleTap) 20.dp else 32.dp).height(22.dp).drawBehind {
             val ink = fold.ink.copy(alpha = 0.7f)
             val r = 3.2.dp.toPx()

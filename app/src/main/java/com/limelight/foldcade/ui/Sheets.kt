@@ -81,7 +81,7 @@ internal fun Sheets(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
             Sheet.None -> Unit
         }
     }
-    var lastMessage by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var lastMessage by remember { mutableStateOf<Message?>(null) }
     if (ui.message != null) lastMessage = ui.message
     val messageOpen by eased(if (ui.message != null) 1f else 0f, fold.durationIsland)
     val message = ui.message ?: lastMessage?.takeIf { messageOpen > 0f }
@@ -206,7 +206,7 @@ private fun SettingsSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActio
                     }
                 }
                 Gap(height = 10.dp)
-                SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxWidth())
+                SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxWidth(), portrait = true)
             } else {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     Column(Modifier.width(158.dp).fillMaxHeight()) {
@@ -218,7 +218,7 @@ private fun SettingsSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActio
                         }
                     }
                     Gap(width = 12.dp)
-                    SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxHeight())
+                    SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxHeight(), portrait = false)
                 }
             }
             Gap(height = 6.dp)
@@ -256,7 +256,11 @@ private fun SettingsHints(ui: CompanionUi, nav: NavHost) {
             focused.startsWith("set:") -> {
                 val setting = CompanionSettings.categories.flatMap { it.settings }.firstOrNull { "set:${it.key}" == focused }
                 Hint(R.drawable.fc_ic_btn_a, when (setting) {
-                    is Setting.Steps -> if (setting.auto) "Auto" else "Reset"
+                    is Setting.Steps -> when {
+                        setting === CompanionSettings.volume -> if (ui.muted) "Unmute" else "Mute"
+                        setting.auto -> "Auto"
+                        else -> "Reset"
+                    }
                     else -> "Change"
                 })
                 Hint(R.drawable.fc_ic_btn_b, "Categories")
@@ -272,7 +276,7 @@ private fun SettingsHints(ui: CompanionUi, nav: NavHost) {
 
 @Composable
 private fun SettingsCard(ui: CompanionUi, nav: NavHost, actions: CompanionActions, category: CompanionSettings.Category,
-                         progress: () -> Float, modifier: Modifier) {
+                         progress: () -> Float, modifier: Modifier, portrait: Boolean) {
     val fold = LocalFold.current
     val shape = RoundedCornerShape(24.dp)
     Column(
@@ -295,12 +299,22 @@ private fun SettingsCard(ui: CompanionUi, nav: NavHost, actions: CompanionAction
                     .selectionHighlight(nav, slots),
             ) {
                 category.settings.forEachIndexed { index, setting ->
-                    SettingRow(ui, nav, actions, setting, slots, Modifier.cascade(fold, index, progress))
+                    SettingRow(ui, nav, actions, setting, slots, Modifier.cascade(fold, index, progress), rowExits(ui, portrait, index == 0))
                 }
             }
         }
-        ApplyBar(ui, nav, actions)
+        ApplyBar(ui, nav, actions, rowExits(ui, portrait, first = false))
     }
+}
+
+/**
+ * Where a row leaves to: its own category, never the nearest one, which could be another page.
+ * In landscape that is Left from any row; in portrait, with the categories above, Up from the first.
+ */
+internal fun rowExits(ui: CompanionUi, portrait: Boolean, first: Boolean): Map<CompanionNav.Direction, () -> String?> = when {
+    !portrait -> mapOf(CompanionNav.Direction.Left to { "cat:${ui.category}" })
+    first -> mapOf(CompanionNav.Direction.Up to { "cat:${ui.category}" })
+    else -> emptyMap()
 }
 
 private fun categoryIcon(id: String): Int = when (id) {
@@ -322,7 +336,8 @@ private fun settingIcon(setting: Setting): Int = when (setting) {
     CompanionSettings.fullRange -> R.drawable.fc_pc_range
     CompanionSettings.overlay -> R.drawable.fc_pc_overlay
     CompanionSettings.sops -> R.drawable.fc_ic_status_wrench
-    CompanionSettings.speakers -> R.drawable.fc_ic_status_volume_3
+    CompanionSettings.volume -> R.drawable.fc_ic_status_volume_3
+    CompanionSettings.speakers -> R.drawable.fc_pc_speakers
     CompanionSettings.hostAudio -> R.drawable.fc_symbol_pc
     CompanionSettings.swapButtons -> R.drawable.fc_pc_swap
     CompanionSettings.deadzone -> R.drawable.fc_pc_stick
@@ -422,7 +437,8 @@ private fun Modifier.selectionHighlight(nav: NavHost, slots: Map<String, Rect>):
  * lowest, Left goes back to the categories instead.
  */
 @Composable
-private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions, setting: Setting, slots: MutableMap<String, Rect>, modifier: Modifier) {
+private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions, setting: Setting, slots: MutableMap<String, Rect>, modifier: Modifier,
+                       exits: Map<CompanionNav.Direction, () -> String?>) {
     val fold = LocalFold.current
     val id = "set:${setting.key}"
     val focused = nav.isFocused(id)
@@ -445,7 +461,7 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
         is Setting.Toggle -> {
             val on = CompanionSettings.toggle(store, setting)
             val flip = { CompanionSettings.setToggle(store, setting, !on); changed() }
-            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS) { flip() }, nav, id, icon, setting.label, 52.dp, { flip() }) {
+            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS, moves = exits) { flip() }, nav, id, icon, setting.label, 52.dp, { flip() }) {
                 ToggleSwitch(on, focused)
             }
         }
@@ -457,7 +473,7 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
                 if (next != null) { CompanionSettings.setChoice(store, setting, next); changed() }
                 next != null
             }
-            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = step) { wrap() }, nav, id, icon, setting.label, 52.dp, { wrap() },
+            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = step, moves = exits) { wrap() }, nav, id, icon, setting.label, 52.dp, { wrap() },
                 gutter = false) {
                 ChoiceValue(CompanionSettings.optionLabel(setting, value), focused, nav.owned,
                     CompanionSettings.canStep(setting, value, -1), CompanionSettings.canStep(setting, value, 1),
@@ -474,10 +490,16 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
             }
             // A puts a slider back: Auto for bitrate, the default for the rest.
             val reset = {
-                val back = if (setting.auto) null else setting.default
-                if (value != back) { CompanionSettings.setSteps(store, setting, back); changed() } else nav.refuse(id)
+                if (setting === CompanionSettings.volume) {
+                    // A on Volume mutes and unmutes, as the deck's Mute tile does.
+                    actions.setMuted(!ui.muted)
+                    changed()
+                } else {
+                    val back = if (setting.auto) null else setting.default
+                    if (value != back) { CompanionSettings.setSteps(store, setting, back); changed() } else nav.refuse(id)
+                }
             }
-            Row(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = adjust) { reset() }.shakeOnRefuse(nav, id)
+            Row(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = adjust, moves = exits) { reset() }.shakeOnRefuse(nav, id)
                 .padding(start = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
                 RowSymbol(icon, focused)
                 Gap(width = 14.dp)
@@ -540,7 +562,7 @@ private fun RowShell(modifier: Modifier, nav: NavHost, id: String, icon: Int, la
 
 /** Shown once a stream setting changed: restart the stream to wear it. The game stays running. */
 @Composable
-private fun ApplyBar(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
+private fun ApplyBar(ui: CompanionUi, nav: NavHost, actions: CompanionActions, exits: Map<CompanionNav.Direction, () -> String?>) {
     val fold = LocalFold.current
     val pending = ui.pending.isNotEmpty() && !ui.restarting
     val shown by eased(if (pending) 1f else 0f, fold.durationIsland)
@@ -552,7 +574,7 @@ private fun ApplyBar(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
             Modifier
                 .fillMaxWidth()
                 .height(50.dp)
-                .navTarget(nav, id, Layer.SETTINGS, enabled = pending) { actions.restart() }
+                .navTarget(nav, id, Layer.SETTINGS, enabled = pending, moves = exits) { actions.restart() }
                 .focusLift(focused)
                 .focusRing(focused, 25.dp)
                 .drawBehind { drawRoundRect(fold.ringBrush(size), cornerRadius = CornerRadius(size.height / 2f), alpha = 0.9f) }
@@ -571,44 +593,74 @@ private fun ApplyBar(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
     }
 }
 
-/** A message in Foldcade's dialog style, in place of a stock Android dialog. */
+/** A message in Foldcade's dialog style, in place of a stock Android dialog. B is its second button, or closes it. */
 @Composable
-private fun MessageCard(message: Pair<String, String>, nav: NavHost, actions: CompanionActions, progress: () -> Float) {
+private fun MessageCard(message: Message, nav: NavHost, actions: CompanionActions, progress: () -> Float) {
     val fold = LocalFold.current
     Box(Modifier.fillMaxSize().drawBehind { drawRect(fold.background.copy(alpha = fold.scrimAlpha * progress())) }
-        .pointerInput(Unit) { detectTapGestures { actions.dismissMessage() } }, contentAlignment = Alignment.Center) {
-        val shape = RoundedCornerShape(fold.cardCorner)
-        Column(
-            Modifier
-                .widthIn(max = 420.dp)
-                .padding(24.dp)
-                .rise(fold, progress)
-                .clip(shape)
-                .drawBehind { drawRect(fold.cardFill()) }
-                .border(2.dp, fold.ink.copy(alpha = fold.borderAlpha), shape)
-                .padding(24.dp),
-        ) {
-            BasicText(message.first, style = fold.title)
-            Gap(height = 8.dp)
-            BasicText(message.second, style = fold.row.copy(fontSize = 16.sp, color = fold.ink.copy(alpha = 0.8f)))
-            Gap(height = 18.dp)
-            val focused = nav.isFocused("message:ok")
-            Box(
-                Modifier
-                    .align(Alignment.End)
-                    .navTarget(nav, "message:ok", Layer.MESSAGE) { actions.dismissMessage() }
-                    .focusRing(focused, 22.dp)
-                    .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.1f), cornerRadius = CornerRadius(size.height / 2f)) }
-                    .pointerInput(Unit) { detectTapGestures { actions.dismissMessage() } }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Glyph(R.drawable.fc_ic_btn_a, 22.dp, null)
-                    Gap(width = 8.dp)
-                    BasicText("OK", style = fold.row.copy(fontWeight = fold.strong))
-                }
-            }
+        .pointerInput(Unit) { detectTapGestures { } }, contentAlignment = Alignment.Center) {
+        MessagePanel(
+            message.title, message.body, message.primary, message.secondary,
+            primaryFocused = nav.isFocused("message:primary"), secondaryFocused = nav.isFocused("message:secondary"),
+            onPrimary = actions::messagePrimary, onSecondary = actions::messageSecondary,
+            modifier = Modifier.rise(fold, progress),
+            primaryModifier = Modifier.navTarget(nav, "message:primary", Layer.MESSAGE) { actions.messagePrimary() },
+            secondaryModifier = Modifier.navTarget(nav, "message:secondary", Layer.MESSAGE) { actions.messageSecondary() },
+        )
+    }
+}
+
+/**
+ * The card itself: title, a line of body, and its buttons, each wearing the controller button
+ * that presses it. A is the main choice, on the right; B, when there is a second, beside it.
+ */
+@Composable
+internal fun MessagePanel(
+    title: String, body: String, primary: String, secondary: String?,
+    primaryFocused: Boolean, secondaryFocused: Boolean,
+    onPrimary: () -> Unit, onSecondary: () -> Unit,
+    modifier: Modifier = Modifier, primaryModifier: Modifier = Modifier, secondaryModifier: Modifier = Modifier,
+) {
+    val fold = LocalFold.current
+    val shape = RoundedCornerShape(fold.cardCorner)
+    Column(
+        modifier
+            .widthIn(max = 440.dp)
+            .padding(24.dp)
+            .clip(shape)
+            .drawBehind { drawRect(fold.cardFill()) }
+            .border(2.dp, fold.ink.copy(alpha = fold.borderAlpha), shape)
+            .padding(24.dp),
+    ) {
+        BasicText(title, style = fold.title)
+        Gap(height = 8.dp)
+        BasicText(body, style = fold.row.copy(fontSize = 16.sp, color = fold.ink.copy(alpha = 0.8f)))
+        Gap(height = 20.dp)
+        Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (secondary != null) MessageButton(R.drawable.fc_ic_btn_b, secondary, secondaryFocused, onSecondary, secondaryModifier)
+            MessageButton(R.drawable.fc_ic_btn_a, primary, primaryFocused, onPrimary, primaryModifier)
         }
     }
-    Spacer(Modifier.size(0.dp))
+}
+
+@Composable
+private fun MessageButton(button: Int, label: String, focused: Boolean, onPress: () -> Unit, modifier: Modifier) {
+    val fold = LocalFold.current
+    val press by androidx.compose.runtime.rememberUpdatedState(onPress)
+    Box(
+        modifier
+            .heightIn(min = 48.dp)
+            .focusRing(focused, 24.dp)
+            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.1f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = label; onClick { press(); true } }
+            .pointerInput(Unit) { detectTapGestures { press() } }
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Glyph(button, 22.dp, null)
+            Gap(width = 8.dp)
+            BasicText(label, style = fold.row.copy(fontWeight = fold.strong))
+        }
+    }
 }

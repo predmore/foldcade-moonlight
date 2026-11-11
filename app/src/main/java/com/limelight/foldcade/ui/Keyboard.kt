@@ -54,12 +54,14 @@ import kotlin.math.roundToInt
  * chips above them, and one highlight that glides from key to key and lands with the menus'
  * bounce. A key flashes when it acts, even when a button did the work, and the keys a button
  * also works wear its glyph: X on Erase, Y on Space, L2 on Shift, Start on Done.
+ *
+ * It is played with the controller, so its keys take no taps: at 12 across, a key is about 40dp,
+ * short of a finger's 48dp. Touch types with Android's keyboard, one tap away on "Touch keys".
  */
 @Composable
-internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -> Unit, modifier: Modifier = Modifier) {
+internal fun PcKeyboardView(state: PcKeyboard.State, modifier: Modifier = Modifier) {
     val fold = LocalFold.current
     val density = LocalDensity.current
-    val tap by rememberUpdatedState(onTap)
     val caps by eased(if (state.shift == PcKeyboard.Shift.Off) 0f else 1f)
     val flash = remember { Animatable(0f) }
     LaunchedEffect(state.pressed) {
@@ -69,8 +71,7 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val reach = 14.dp
-        val rows = PcKeyboard.rows.size
-        val tall = CHIP_HEIGHT + CHIP_GAP + rows * ROW_PITCH - KEY_GAP
+        val tall = CHIP_HEIGHT + CHIP_GAP + PcKeyboard.rows.size * ROW_PITCH - KEY_GAP
         val unit = minOf((maxWidth - reach * 2) / PcKeyboard.WIDTH, (maxHeight - reach * 2) / tall).coerceAtLeast(0.dp)
         val blockWidth = unit * PcKeyboard.WIDTH
         val left = (maxWidth - blockWidth) / 2
@@ -80,13 +81,14 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
         val leftPx = with(density) { left.toPx() }
         val topPx = with(density) { top.toPx() }
         val keysTopPx = with(density) { keysTop.toPx() }
-        val chipWidth = (PcKeyboard.WIDTH - CHIP_SPACING * (PcKeyboard.chips.size - 1)) / PcKeyboard.chips.size
+        val slot = PcKeyboard.WIDTH / PcKeyboard.chips.size
 
-        fun chipRect(index: Int) = Rect(Offset(leftPx + index * (chipWidth + CHIP_SPACING) * unitPx, topPx),
-            Size(chipWidth * unitPx, CHIP_HEIGHT * unitPx))
+        fun chipRect(index: Int) = Rect(Offset(leftPx + (index * slot + CHIP_SPACING / 2f) * unitPx, topPx),
+            Size((slot - CHIP_SPACING) * unitPx, CHIP_HEIGHT * unitPx))
 
+        val rows = PcKeyboard.rows(state.fKeys)
         val target = if (state.focus.onChips) chipRect(state.focus.index).grown(fold.scaleFocus)
-        else PcKeyboard.key(state.focus)?.let { keyRect(it, state.focus.row, unitPx, leftPx, keysTopPx).grown(fold.scaleFocus) }
+        else PcKeyboard.key(state.focus, state.fKeys)?.let { keyRect(it, state.focus.row, unitPx, leftPx, keysTopPx).grown(fold.scaleFocus) }
         val highlight = rememberGliding(target)
         Box(
             Modifier.fillMaxSize().drawWithContent {
@@ -98,42 +100,46 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
                 drawFocusRing(fold, corner, 1f, rect)
             },
         ) {
-            PcKeyboard.chips.forEachIndexed { index, (name, _) ->
-                val at = PcKeyboard.Focus(PcKeyboard.CHIP_ROW, index, state.focus.x)
+            PcKeyboard.chips.forEachIndexed { index, chip ->
                 val rect = chipRect(index)
                 val flashed = state.pressedKey?.let { it.onChips && it.index == index } == true
+                // Ctrl, Alt and the F-key layer light while latched, as Shift does.
+                val latched = (chip == PcKeyboard.Chip.Ctrl && state.ctrl) || (chip == PcKeyboard.Chip.Alt && state.alt) ||
+                    (chip == PcKeyboard.Chip.FKeys && state.fKeys)
+                val lit by eased(if (latched) 1f else 0f)
                 Box(
                     Modifier
                         .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
                         .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
                         .drawBehind {
                             val r = CornerRadius(size.height * fold.round)
+                            drawRoundRect(lerp(fold.background, fold.surface, 0.9f), cornerRadius = r)
                             drawRoundRect(fold.ink.copy(alpha = 0.08f + 0.2f * if (flashed) flash.value else 0f), cornerRadius = r)
+                            if (lit > 0f) drawRoundRect(Brush.linearGradient(listOf(fold.ringStart, fold.ringEnd), Offset.Zero, Offset(size.width, size.height)),
+                                cornerRadius = r, alpha = 0.5f * lit)
                             drawRoundRect(fold.ink.copy(alpha = 0.12f), cornerRadius = r, style = Stroke(1.dp.toPx()))
                         }
-                        .semantics { contentDescription = name }
-                        .pointerInput(index) { detectTapGestures { tap(at) } },
+                        .semantics { contentDescription = chip.label },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicText(name, style = fold.hint.copy(color = fold.ink, fontSize = with(density) { (unit * 0.34f).toSp() }))
-                        if (name == "Enter") {
-                            Gap(width = 6.dp)
-                            Glyph(R.drawable.fc_ic_btn_r2, unit * 0.42f, null, Modifier.graphicsLayer { alpha = 0.62f })
-                        }
+                    val labelSize = with(density) { (unit * 0.34f).toSp() }
+                    when (chip) {
+                        PcKeyboard.Chip.Esc -> Glyph(R.drawable.fc_pc_escape, unit * 0.46f, fold.ink)
+                        PcKeyboard.Chip.Tab -> Glyph(R.drawable.fc_pc_tab, unit * 0.46f, fold.ink)
+                        else -> BasicText(chip.label, maxLines = 1, style = fold.hint.copy(color = fold.ink, fontWeight = if (latched) fold.strong else null,
+                            fontSize = with(density) { (unit * when { chip.label.length == 1 -> 0.44f; chip.label.length > 4 -> 0.27f; else -> 0.34f }).toSp() }))
                     }
                 }
             }
-            PcKeyboard.rows.forEachIndexed { row, keys ->
+            rows.forEachIndexed { row, keys ->
                 keys.forEachIndexed { index, placed ->
                     val at = PcKeyboard.Focus(row, index, placed.center)
                     val rect = keyRect(placed, row, unitPx, leftPx, keysTopPx)
                     val focused = !state.focus.onChips && state.focus.row == row && state.focus.index == index
-                    Key(placed, state, focused, state.pressedKey == at, { flash.value }, { caps }, unit,
+                    Key(placed, state, focused, state.pressedKey?.let { it.row == at.row && it.index == at.index } == true, { flash.value }, { caps }, unit,
                         Modifier
                             .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
-                            .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
-                            .pointerInput(row, index) { detectTapGestures { tap(at) } })
+                            .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() }))
                 }
             }
         }
@@ -160,7 +166,7 @@ private fun Key(placed: PcKeyboard.Placed, state: PcKeyboard.State, focused: Boo
             }
             .drawBehind {
                 val radius = CornerRadius(unit.toPx() * KEY_CORNER)
-                val body = if (cap is Cap.Glyph) 0.12f else 0.05f
+                val body = if (cap is Cap.Glyph || cap is Cap.Fn) 0.12f else 0.05f
                 // Glass: lit at the top, the surface below, opaque so the backdrop never cuts a key.
                 drawRoundRect(Brush.verticalGradient(listOf(lerp(fold.surface, fold.ink, body + 0.06f * lit), fold.surface)), cornerRadius = radius)
                 if (cap == Cap.Done || shiftLit > 0f) {
@@ -193,6 +199,7 @@ private fun Key(placed: PcKeyboard.Placed, state: PcKeyboard.State, focused: Boo
                     BasicText(cap.upper.toString(), style = style, modifier = Modifier.graphicsLayer { alpha = caps(); translationY = (caps() - 1f) * roll })
                 }
             }
+            is Cap.Fn -> BasicText("F${cap.number}", style = TextStyle(color = fold.ink, fontSize = word, fontFamily = fold.font, fontWeight = fold.strong))
             Cap.ShiftKey -> KeyArt(if (shiftLit > 0.5f) R.drawable.fc_ic_control_shift_on else R.drawable.fc_ic_control_shift, R.drawable.fc_ic_btn_l2, glyph)
             Cap.Erase -> KeyArt(R.drawable.fc_ic_control_erase, R.drawable.fc_ic_btn_x, glyph)
             Cap.Space -> KeyArt(R.drawable.fc_ic_control_space, R.drawable.fc_ic_btn_y, glyph, artWidth = 2.4f)

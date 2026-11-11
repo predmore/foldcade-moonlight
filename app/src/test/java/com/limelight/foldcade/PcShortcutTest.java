@@ -28,4 +28,12 @@ public class PcShortcutTest {
     @Test public void keyCodesCarryMoonlightsPrefix() {
         for (PcShortcut.Step step : PcShortcut.ALT_F4.steps()) assertEquals(0x80, (step.key >> 8) & 0xff);
     }
+
+    @Test public void anyKeyCanBeStrokedWithModifiersInOrder() {
+        // Ctrl+Alt+Shift around T: down Ctrl, Alt, Shift, tap T, up in reverse.
+        assertEquals("[A2v2, A4v6, A0v7, 54v7, 54^7, A0^6, A4^2, A2^0]",
+                PcShortcut.stroke(0x54, PcShortcut.CTRL | PcShortcut.ALT | PcShortcut.SHIFT).toString());
+        assertEquals("[70v0, 70^0]", PcShortcut.stroke(0x70, 0).toString());
+        assertEquals("[5Bv8, 47v8, 47^8, 5B^0]", strokes(PcShortcut.GAME_OVERLAY));
+    }
 }

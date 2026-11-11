@@ -41,6 +41,10 @@ import kotlin.math.sin
  * never moves the controller.
  */
 open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionView, CompanionActions {
+    private companion object {
+        const val LEARNED = "trackpadGesturesLearned"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private var session: FoldcadeSession? = null
     private lateinit var ui: CompanionUi
@@ -49,7 +53,27 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     private var showImeOnFocus = false
     private var imeWasVisible = false
     override lateinit var gesture: TouchpadGesture
-    override val store: CompanionSettings.Store by lazy { PreferenceStore.of(this) }
+    /**
+     * Moonlight's preferences, plus the Thor's media volume under [CompanionSettings.DEVICE_VOLUME],
+     * so Settings › Audio can show it as a slider like any other row.
+     */
+    override val store: CompanionSettings.Store by lazy {
+        val prefs = PreferenceStore.of(this)
+        val audio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        val music = android.media.AudioManager.STREAM_MUSIC
+        object : CompanionSettings.Store by prefs {
+            override fun has(key: String) = key == CompanionSettings.DEVICE_VOLUME || prefs.has(key)
+            override fun integer(key: String): Int? = if (key != CompanionSettings.DEVICE_VOLUME) prefs.integer(key)
+                else if (audio.isStreamMute(music)) 0 else audio.getStreamVolume(music) * 100 / audio.getStreamMaxVolume(music).coerceAtLeast(1)
+            override fun put(key: String, value: Any?) {
+                if (key != CompanionSettings.DEVICE_VOLUME) return prefs.put(key, value)
+                val percent = (value as? Int) ?: return
+                // Setting a level is also an unmute, as the Thor's own volume keys are.
+                audio.setStreamVolume(music, Math.round(percent / 100f * audio.getStreamMaxVolume(music)), 0)
+                if (percent > 0 && audio.isStreamMute(music)) audio.adjustStreamVolume(music, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            }
+        }
+    }
     override var topScreen: String = "1920×1080"
 
     private val tick = object : Runnable {
@@ -61,6 +85,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
                 s.stats = StreamStats(60 + offset / 4, 4, 2.1f + offset / 10, 0f, 1920, 1080, MoonBridge.VIDEO_FORMAT_H265)
             }
             refresh()
+            s.updatePill()
             handler.postDelayed(this, 1000)
         }
     }
@@ -77,7 +102,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         session = s
         s.attach(this)
         ui = CompanionUi(s.title, s.pcName)
-        ui.hintsSeen = getPreferences(MODE_PRIVATE).getBoolean("touchpadHintSeen", false)
+        ui.learned = learnedGestures()
         // The window stays focusable. Launching it makes the bottom display the focused one, and a
         // non-focusable window there would leave controller input with no window at all. Every key
         // and controller motion it receives is forwarded to the stream unless the companion owns it.
@@ -96,6 +121,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             override fun scroll(vertical: Short, horizontal: Short) = s.scroll(vertical, horizontal)
         }, ViewConfiguration.get(this).scaledTouchSlop / resources.displayMetrics.density)
         applyTrackpadSettings()
+        gesture.setLearner { used -> handler.post { learn(used) } }
 
         val scale = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         val fold = Fold(s.appearance, scale)
@@ -104,7 +130,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         nav.backs[Layer.SETTINGS] = {
             if (nav.focused?.startsWith("set:") == true || nav.focused == "apply") nav.focus("cat:${ui.category}") else closeSheet()
         }
-        nav.backs[Layer.MESSAGE] = { dismissMessage() }
+        nav.backs[Layer.MESSAGE] = { messageSecondary() }
 
         val root = FrameLayout(this)
         root.addView(ComposeView(this).apply {
@@ -274,18 +300,11 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         deliver(output)
     }
 
-    override fun keyboardTap(at: PcKeyboard.Focus) {
-        val state = ui.keyboard ?: return
-        val (next, output) = state.press(at)
-        ui.keyboard = next
-        deliver(output)
-    }
-
     private fun deliver(output: PcKeyboard.Output) {
         val s = session ?: return
         when (output) {
             is PcKeyboard.Output.Text -> s.text(output.text)
-            is PcKeyboard.Output.Key -> s.sendShortcut(output.shortcut)
+            is PcKeyboard.Output.Stroke -> s.sendStroke(output.vk, output.modifiers)
             PcKeyboard.Output.Close -> setTyping(false)
             PcKeyboard.Output.None -> Unit
         }
@@ -421,7 +440,24 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         refresh()
     }
 
-    override fun setPadMouse(on: Boolean) { session?.setPadMouse(on) }
+    /**
+     * The stick is the mouse only while the game has the controller, so turning it on from here
+     * with the controller hands the controller back. Turning it off leaves the controller where it is.
+     */
+    override fun setPadMouse(on: Boolean) {
+        val s = session ?: return
+        s.setPadMouse(on)
+        if (on && nav.owned) s.setCompanionOwnsInput(false)
+    }
+
+    override fun touchKeys() {
+        val s = session ?: return
+        ui.keyboard = null
+        s.setCompanionOwnsInput(false)
+        showImeOnFocus = true
+        editor.requestFocus()
+        editor.post { if (ui.typing && ui.keyboard == null && hasWindowFocus()) showIme() }
+    }
 
     override fun takeController(take: Boolean) { session?.setCompanionOwnsInput(take) }
 
@@ -464,24 +500,69 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         gesture.setNaturalScroll(CompanionSettings.toggle(store, CompanionSettings.naturalScroll))
     }
 
-    override fun hintsSeen() {
-        if (ui.hintsSeen) return
-        ui.hintsSeen = true
-        getPreferences(MODE_PRIVATE).edit().putBoolean("touchpadHintSeen", true).apply()
+    /** Each gesture's hint retires once that gesture has been used; the set survives sessions. */
+    private fun learn(used: TouchpadGesture.Gesture) {
+        if (used in ui.learned) return
+        ui.learned = ui.learned + used
+        getPreferences(MODE_PRIVATE).edit().putStringSet(LEARNED, ui.learned.map { it.name }.toSet()).apply()
     }
+
+    private fun learnedGestures(): Set<TouchpadGesture.Gesture> =
+        getPreferences(MODE_PRIVATE).getStringSet(LEARNED, emptySet()).orEmpty()
+            .mapNotNull { name -> TouchpadGesture.Gesture.entries.firstOrNull { it.name == name } }.toSet()
 
     override fun confirmDisconnect() = openSheet(Sheet.End)
 
-    override fun showMessage(title: String, message: String) {
-        if (isFinishing) return
-        ui.message = title to message
-        nav.openLayer(Layer.MESSAGE, "message:ok")
+    override fun showMessage(title: String, message: String) =
+        show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.Info, title, message, "OK"))
+
+    override fun showQuitFailed(reason: String) =
+        show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.QuitFailed, "Game didn't quit", reason, "Try again", "Disconnect"))
+
+    override fun showRestartFailed() {
+        if (ui.sheet != Sheet.None) closeSheet()
+        show(com.limelight.foldcade.ui.Message(com.limelight.foldcade.ui.MessageKind.RestartFailed, "Couldn't restart the stream",
+            "The game is still running on your PC. Start it again from Foldcade.", "OK"))
     }
 
+    private fun show(message: com.limelight.foldcade.ui.Message) {
+        if (isFinishing) return
+        ui.message = message
+        nav.openLayer(Layer.MESSAGE, "message:primary")
+    }
+
+    override fun messagePrimary() {
+        val message = ui.message ?: return
+        when (message.kind) {
+            com.limelight.foldcade.ui.MessageKind.QuitFailed -> { dismissMessage(); quit() }
+            com.limelight.foldcade.ui.MessageKind.RestartFailed -> session?.end()
+            com.limelight.foldcade.ui.MessageKind.Info -> dismissMessage()
+        }
+    }
+
+    override fun messageSecondary() {
+        val message = ui.message ?: return
+        when (message.kind) {
+            com.limelight.foldcade.ui.MessageKind.QuitFailed -> disconnect()
+            com.limelight.foldcade.ui.MessageKind.RestartFailed -> session?.end()
+            com.limelight.foldcade.ui.MessageKind.Info -> dismissMessage()
+        }
+    }
+
+    /**
+     * Back to where the player was: the End sheet's Quit when the message came from there and the
+     * sheet is still open, the deck's End tile after a failed quit, and Esc otherwise. Focus is
+     * never left on the message's buttons, which are gone.
+     */
     override fun dismissMessage() {
-        if (ui.message == null) return
+        val message = ui.message ?: return
         ui.message = null
-        nav.closeLayer(if (ui.sheet == Sheet.End) Layer.END else if (ui.sheet == Sheet.Settings) Layer.SETTINGS else Layer.DECK)
+        val fromQuit = message.kind == com.limelight.foldcade.ui.MessageKind.QuitFailed
+        when (ui.sheet) {
+            Sheet.End -> { nav.closeLayer(Layer.END); nav.focus(if (fromQuit) "end:quit" else "end:disconnect") }
+            Sheet.Settings -> { nav.closeLayer(Layer.SETTINGS); nav.focus("cat:${ui.category}") }
+            Sheet.None -> { nav.closeLayer(Layer.DECK); nav.focus(if (fromQuit) "tile:end" else "key:esc") }
+        }
     }
 
     /** Debug preview only: open a screen or state so QA can capture it. */
@@ -500,9 +581,14 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             "typing" -> setTyping(true)
             "typing-owned" -> { s.setCompanionOwnsInput(true); setTyping(true) }
             "detail" -> ui.statsDetail = true
-            "message" -> showMessage("Unable to quit game", "The computer did not close the game. Try again, or disconnect and leave it running.")
+            "message" -> showQuitFailed(FoldcadeSession.QUIT_KEPT)
+            "quit-fail" -> { s.simulateQuitFailure = true; s.setCompanionOwnsInput(true); openSheet(Sheet.End) }
+            "restart-fail" -> showRestartFailed()
             "restart" -> s.restartStream()
-            "fresh" -> { ui.hintsSeen = false }
+            "fresh" -> {
+                ui.learned = emptySet()
+                getPreferences(MODE_PRIVATE).edit().remove(LEARNED).apply()
+            }
         }
         refresh()
     }

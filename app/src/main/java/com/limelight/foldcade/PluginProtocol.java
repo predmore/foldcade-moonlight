@@ -28,9 +28,9 @@ public final class PluginProtocol {
         switch (code) {
             case "not_granted":
                 return "In Foldcade, open Settings › Plugins › Foldcade Moonlight and turn on Share paired computers.";
-            case "unknown_host": return "This computer is no longer paired with Foldcade. Pair it again in Foldcade › Settings › Library.";
-            case "unreachable": return "The computer could not be reached. Check that it is awake and connected, then try again.";
-            case "host_error": return "The computer could not complete the streaming request. Try again from Foldcade.";
+            case "unknown_host": return "This PC is no longer paired with Foldcade. Pair it again in Foldcade › Settings › Library.";
+            case "unreachable": return "Your PC could not be reached. Check that it is awake and connected, then try again.";
+            case "host_error": return "Your PC could not complete the streaming request. Try again from Foldcade.";
             case "not_launched": return "Start this game from Foldcade.";
             case "bad_request": return "The streaming request was not accepted. Update Foldcade and Foldcade Moonlight, then try again.";
             default: return "Foldcade Moonlight could not reach Foldcade. Open Foldcade and try again.";

@@ -22,6 +22,8 @@ object CompanionSettings {
     const val PAD_SPEED = "foldcade_pad_speed"
     const val NATURAL_SCROLL = "foldcade_natural_scroll"
     const val NATIVE = "native"
+    /** Not a preference: the Thor's media volume, in percent, read and written by the device's store. */
+    const val DEVICE_VOLUME = "foldcade_device_volume"
 
     data class Option(val value: String, val label: String)
 
@@ -66,6 +68,7 @@ object CompanionSettings {
     val speakers = Setting.Choice("list_audio_config", "Speakers", listOf(
         Option("2", "Stereo"), Option("51", "5.1"), Option("71", "7.1")), "2")
     val hostAudio = Setting.Toggle("checkbox_host_audio", "Play on PC too", false)
+    val volume = Setting.Steps(DEVICE_VOLUME, "Volume", (0..10).map { it * 10 }, null, "%", restarts = false)
     val swapButtons = Setting.Toggle("checkbox_flip_face_buttons", "Swap A/B and X/Y", false)
     val deadzone = Setting.Steps("seekbar_deadzone", "Stick deadzone", (0..20).toList(), 7, "%")
     val padMouse = Setting.Toggle("checkbox_mouse_emulation", "Hold Start for stick mouse", true)
@@ -79,7 +82,7 @@ object CompanionSettings {
 
     val categories = listOf(
         Category("video", "Video", listOf(resolution, fps, bitrate, codec, hdr, pacing, stretch, fullRange, overlay, sops)),
-        Category("audio", "Audio", listOf(speakers, hostAudio)),
+        Category("audio", "Audio", listOf(volume, speakers, hostAudio)),
         Category("controls", "Controls", listOf(swapButtons, deadzone, padMouse, motion, rumble)),
         Category("trackpad", "Trackpad", listOf(padSpeed, naturalScroll, desktopMouse)),
     )

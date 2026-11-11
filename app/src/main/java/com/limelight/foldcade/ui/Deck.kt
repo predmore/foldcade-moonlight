@@ -81,8 +81,9 @@ internal class CompanionUi(val title: String, val pcName: String) {
     /** The controller keyboard while the companion has the controller; null types with Android's keyboard. */
     var keyboard by mutableStateOf<PcKeyboard.State?>(null)
     var statsDetail by mutableStateOf(false)
-    var hintsSeen by mutableStateOf(false)
-    var message by mutableStateOf<Pair<String, String>?>(null)
+    var message by mutableStateOf<Message?>(null)
+    /** The trackpad gestures the player has used; each retires its own hint. */
+    var learned by mutableStateOf<Set<TouchpadGesture.Gesture>>(emptySet())
     var category by mutableStateOf(CompanionSettings.categories.first().id)
     /** The row last used in each category, where Right from that category lands. */
     val lastRow = HashMap<String, String>()
@@ -91,6 +92,12 @@ internal class CompanionUi(val title: String, val pcName: String) {
     var settingsVersion by mutableIntStateOf(0)
 }
 
+/** What a message is about, which decides its buttons and where focus goes after it. */
+internal enum class MessageKind { QuitFailed, RestartFailed, Info }
+
+/** A message in Foldcade's dialog style. [primary] is A's button; [secondary], when there is one, is B's. */
+internal data class Message(val kind: MessageKind, val title: String, val body: String, val primary: String, val secondary: String? = null)
+
 /** What the screens can do. The activity carries them out against the session. */
 internal interface CompanionActions : PadButtons {
     val gesture: TouchpadGesture
@@ -98,7 +105,6 @@ internal interface CompanionActions : PadButtons {
     val topScreen: String
     fun send(shortcut: PcShortcut)
     fun setTyping(open: Boolean)
-    fun keyboardTap(at: PcKeyboard.Focus)
     fun setMuted(muted: Boolean)
     fun setPadMouse(on: Boolean)
     fun takeController(take: Boolean)
@@ -108,8 +114,13 @@ internal interface CompanionActions : PadButtons {
     fun quit()
     fun restart()
     fun settingChanged()
-    fun hintsSeen()
     fun dismissMessage()
+    /** A on a message, or its first button. */
+    fun messagePrimary()
+    /** B on a message, or its second button. */
+    fun messageSecondary()
+    /** Leaves the controller keyboard for Android's, handing the controller back to the game. */
+    fun touchKeys()
 }
 
 @Composable
@@ -194,7 +205,7 @@ private fun Deck(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
 private fun Pad(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifier: Modifier, compact: Boolean = false) {
     val focused = nav.isFocused("pad")
     Trackpad(
-        actions.gesture, actions, !ui.hintsSeen && !compact, actions::hintsSeen, "PC trackpad",
+        actions.gesture, actions, if (compact) TouchpadGesture.Gesture.entries.toSet() else ui.learned, "PC trackpad",
         modifier
             .navTarget(nav, if (compact) "pad:compact" else "pad", Layer.DECK, enabled = !compact) { actions.setPadMouse(!ui.padMouse) }
             .focusRing(focused && !compact, 22.dp),
@@ -291,14 +302,15 @@ private fun Metric(value: String, label: String) {
 
 @Composable
 private fun KeysRow(nav: NavHost, actions: CompanionActions, modifier: Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         val key = Modifier.weight(1f).fillMaxHeight()
         KeyCap(nav, "key:esc", R.drawable.fc_pc_escape, "Esc", "Escape", key) { actions.send(PcShortcut.ESCAPE) }
         KeyCap(nav, "key:start", R.drawable.fc_pc_start, "Win", "Windows key", key) { actions.send(PcShortcut.START_MENU) }
         KeyCap(nav, "key:alttab", R.drawable.fc_pc_switch, "Alt+Tab", "Alt Tab", key) { actions.send(PcShortcut.ALT_TAB) }
+        KeyCap(nav, "key:overlay", R.drawable.fc_pc_gamebar, "Overlay", "Game overlay, Windows G", key) { actions.send(PcShortcut.GAME_OVERLAY) }
         KeyCap(nav, "key:altf4", R.drawable.fc_pc_close_window, "Alt+F4", "Alt F4, hold to send", key, danger = true) { actions.send(PcShortcut.ALT_F4) }
         KeyCap(nav, "key:cad", R.drawable.fc_pc_security, "Ctrl+Alt+Del", "Control Alt Delete, hold to send",
-            Modifier.weight(1.4f).fillMaxHeight(), danger = true) { actions.send(PcShortcut.CTRL_ALT_DEL) }
+            Modifier.weight(1.45f).fillMaxHeight(), danger = true) { actions.send(PcShortcut.CTRL_ALT_DEL) }
         KeyCap(nav, "key:type", R.drawable.fc_pc_keyboard, "Type", "Keyboard", key) { actions.setTyping(true) }
     }
 }
@@ -316,11 +328,15 @@ private fun Rail(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modif
     else Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) { tiles(Modifier.weight(1f).fillMaxWidth()) }
 }
 
-/** What A does on the focused deck control, for the hint row. */
-private fun deckAction(nav: NavHost): String = when {
-    nav.current()?.hold == true -> "Hold"
-    nav.focused == "pad" -> "Stick mouse"
-    else -> "Select"
+/** What A does on the focused deck control, named, for the hint row. */
+private fun deckAction(nav: NavHost, ui: CompanionUi): String = when (nav.focused) {
+    "tile:mute" -> if (ui.muted) "Unmute" else "Mute"
+    "tile:settings" -> "Open"
+    "tile:end" -> "End"
+    "stats" -> "Details"
+    "tile:mouse", "pad" -> "Stick mouse"
+    "key:type" -> "Type"
+    else -> if (nav.current()?.hold == true) "Hold" else "Send"
 }
 
 @Composable
@@ -339,7 +355,7 @@ private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, mod
             PausedChip()
             Spacer(Modifier.weight(1f))
             HintRow {
-                Hint(R.drawable.fc_ic_btn_a, deckAction(nav))
+                Hint(R.drawable.fc_ic_btn_a, deckAction(nav, ui))
                 Hint(R.drawable.fc_ic_btn_back, "Game")
             }
         }
@@ -436,30 +452,73 @@ private fun TouchTyping(ui: CompanionUi, nav: NavHost, actions: CompanionActions
  */
 @Composable
 private fun ControllerTyping(ui: CompanionUi, keyboard: PcKeyboard.State, actions: CompanionActions) {
+    val fold = LocalFold.current
     val nav = remember { NavHost() }
     BoxWithConstraints(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp)) {
         // The keys need about 6.7 of their own widths in height; the pad takes what is left, if enough.
         val keyUnit = (maxWidth - 28.dp) / PcKeyboard.WIDTH
         val keysTall = keyUnit * 6.72f + 28.dp
-        val padRoom = maxHeight - 40.dp - keysTall
+        val padRoom = maxHeight - 40.dp - 30.dp - keysTall
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
                 PausedChip()
                 Spacer(Modifier.weight(1f))
                 HintRow {
                     Hint(R.drawable.fc_ic_btn_l2, "Shift")
-                    Hint(listOf(R.drawable.fc_ic_btn_l1, R.drawable.fc_ic_btn_r1), "Cursor")
+                    Hint(R.drawable.fc_ic_btn_r2, "Enter")
                     Hint(R.drawable.fc_ic_btn_b, "Close")
                 }
             }
+            Echo(keyboard, actions, Modifier.fillMaxWidth().height(36.dp))
             // The keys keep their own height; the pad takes the rest, so nothing floats in a gap.
             if (padRoom >= 72.dp) {
-                Gap(height = 8.dp)
                 Pad(ui, nav, actions, Modifier.fillMaxWidth().weight(1f), compact = true)
-                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.height(keysTall).fillMaxWidth())
+                PcKeyboardView(keyboard, Modifier.height(keysTall).fillMaxWidth())
             } else {
-                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.weight(1f).fillMaxWidth())
+                PcKeyboardView(keyboard, Modifier.weight(1f).fillMaxWidth())
             }
         }
+    }
+}
+
+/**
+ * What was typed while the keyboard has been open, faint, ending in a caret: the PC's field is
+ * on the other screen, so this is the bottom screen's own record. It stays here and is cleared
+ * when the keyboard closes.
+ */
+@Composable
+private fun Echo(keyboard: PcKeyboard.State, actions: CompanionActions, modifier: Modifier) {
+    val fold = LocalFold.current
+    // The modifiers waiting for the next key, as a PC shortcut reads: "Ctrl + Alt +".
+    val latched = listOfNotNull("Ctrl".takeIf { keyboard.ctrl }, "Alt".takeIf { keyboard.alt })
+    Row(modifier.padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(keyboard.echo, style = fold.row.copy(color = fold.ink.copy(alpha = 0.55f), fontSize = 17.sp), maxLines = 1,
+                overflow = TextOverflow.Clip)
+            Box(Modifier.width(2.dp).height(18.dp).drawBehind { drawRect(fold.ringBrush(size), alpha = 0.8f) })
+            if (latched.isNotEmpty()) {
+                Gap(width = 10.dp)
+                BasicText(latched.joinToString(" + ") + " +", style = fold.hint.copy(color = fold.focus, fontWeight = fold.strong), maxLines = 1)
+            }
+        }
+        TouchKeysChip(actions)
+    }
+}
+
+/** Typing by touch instead: hands the controller back and brings up Android's keyboard. */
+@Composable
+private fun TouchKeysChip(actions: CompanionActions) {
+    val fold = LocalFold.current
+    Row(
+        Modifier
+            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "Touch keyboard"; onClick { actions.touchKeys(); true } }
+            .pointerInput(Unit) { detectTapGestures { actions.touchKeys() } }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Glyph(R.drawable.fc_pc_keyboard, 18.dp, fold.ink)
+        Gap(width = 6.dp)
+        BasicText("Touch keys", style = fold.hint.copy(color = fold.ink), maxLines = 1)
     }
 }

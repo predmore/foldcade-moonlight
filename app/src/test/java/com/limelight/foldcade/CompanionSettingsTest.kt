@@ -99,6 +99,8 @@ class CompanionSettingsTest {
                 "checkbox_gamepad_motion_fallback", "checkbox_vibrate_fallback", "checkbox_absolute_mouse_mode")) {
             assertTrue(key, key in keys)
         }
+        // The device's volume is a live row, never a reason to restart.
+        assertFalse(s.restartSnapshot(store).containsKey(CompanionSettings.DEVICE_VOLUME))
         // A toggle Moonlight never reads in a stream is not offered.
         assertFalse("checkbox_unlock_fps" in keys)
     }

@@ -68,4 +68,24 @@ class NavHostTest {
         nav.owned = false
         assertFalse(nav.isFocused("set:a"))
     }
+
+    @Test fun leftFromAnyRowReturnsToItsOwnCategoryNotTheNearest() {
+        val ui = CompanionUi("Game", "PC").apply { category = "audio" }
+        // Audio's last row sits beside Controls; geometry alone would land there and swap the page.
+        target("cat:video", CompanionNav.Box(0f, 0f, 150f, 50f))
+        target("cat:audio", CompanionNav.Box(0f, 50f, 150f, 100f))
+        target("cat:controls", CompanionNav.Box(0f, 100f, 150f, 150f))
+        target("set:host", CompanionNav.Box(180f, 104f, 500f, 156f), moves = rowExits(ui, portrait = false, first = false))
+        nav.focus("set:host")
+        assertTrue(nav.move(Left))
+        assertEquals("cat:audio", nav.focused)
+        assertEquals("audio", ui.category)
+    }
+
+    @Test fun inPortraitUpLeavesOnlyFromTheFirstRow() {
+        val ui = CompanionUi("Game", "PC").apply { category = "audio" }
+        assertTrue(rowExits(ui, portrait = true, first = true).containsKey(CompanionNav.Direction.Up))
+        assertTrue(rowExits(ui, portrait = true, first = false).isEmpty())
+        assertEquals("cat:audio", rowExits(ui, portrait = true, first = true).getValue(CompanionNav.Direction.Up)())
+    }
 }

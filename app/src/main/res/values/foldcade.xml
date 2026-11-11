@@ -2,8 +2,11 @@
 <resources>
     <string name="foldcade_controller_away">Controller on bottom screen · Return</string>
     <string name="foldcade_disconnect">Disconnect</string>
+    <string name="foldcade_stick_mouse_on">Stick mouse on · Hold Start to stop</string>
+    <string name="foldcade_stick_mouse_on_plain">Stick mouse on</string>
+    <string name="foldcade_one_screen">Bottom screen unavailable · Playing on one screen</string>
     <string name="foldcade_disconnect_confirm">Disconnect?</string>
-    <string name="foldcade_disconnect_detail">The game will keep running on your computer.</string>
+    <string name="foldcade_disconnect_detail">The game keeps running on your PC.</string>
     <style name="FoldcadeCompanionTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">@font/nunito</item>
         <item name="android:colorAccent">#52B788</item>

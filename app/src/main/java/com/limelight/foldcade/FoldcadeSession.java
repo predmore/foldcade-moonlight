@@ -34,6 +34,10 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         void toggleKeyboard();
         void confirmDisconnect();
         void showMessage(String title, String message);
+        /** Quit did not close the game: offer Try again and Disconnect. [reason] is what to say. */
+        void showQuitFailed(String reason);
+        /** A settings restart could not open the new stream; the session ends when it is dismissed. */
+        void showRestartFailed();
         void onNavKey(KeyEvent event);
         void onNavMotion(MotionEvent event);
         void onSessionChanged();
@@ -57,6 +61,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     private boolean quitPending, mutedHere, simulatedMouse;
     /** Moonlight's Desktop mouse mode: the companion's pad moves the PC's cursor as positions too. */
     private boolean desktopMouse;
+    /** Debug preview only: Quit fails, so its message can be seen without a real PC. */
+    boolean simulateQuitFailure;
     private int[] screen = { 1920, 1080 };
     private Map<String, String> applied;
     public volatile boolean ended;
@@ -88,7 +94,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     // Called only by the debug source-set activity; no release intent can enable simulation.
     static FoldcadeSession simulated(int displayId) {
         if (active != null) throw new IllegalStateException("A session is already running");
-        active = new FoldcadeSession("Companion preview", "Simulated computer", -1, displayId, null, null, true, null);
+        active = new FoldcadeSession("Companion preview", "Simulated PC", -1, displayId, null, null, true, null);
         return active;
     }
 
@@ -140,7 +146,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                         .putExtra(PluginProtocol.SESSION, id);
                 activity.startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(bottomDisplay).toBundle());
             } catch (RuntimeException e) {
-                Toast.makeText(activity, "The companion display is unavailable. Streaming on one screen.", Toast.LENGTH_LONG).show();
+                activity.showNotice(activity.getString(com.limelight.R.string.foldcade_one_screen));
             }
         }
     }
@@ -245,9 +251,10 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
             Intent intent = new Intent(streamIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
             context.startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(topDisplay).toBundle());
         } catch (RuntimeException e) {
+            // The game still runs on the PC. The companion says so, and the session ends when the
+            // player has read it.
             restarting = false;
-            companion.showMessage("Unable to restart the stream", "The game is still running on your computer. Start it again from Foldcade.");
-            end();
+            companion.showRestartFailed();
         }
     }
 
@@ -261,7 +268,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         router.setCompanionOwns(owns);
         // Nothing the game was holding stays held on the PC while the companion has the controller.
         if (owns && stream != null) stream.releaseGameInput();
-        if (stream != null) stream.showControllerAway(owns);
+        updatePill();
         notifyCompanion();
     }
 
@@ -343,9 +350,17 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     boolean quitPending() { return quitPending; }
 
+    /** What the companion says when the PC answered but kept the game running. */
+    static final String QUIT_KEPT = "Your PC kept it running.";
+
     void quitGame() {
         if (ended || quitPending) return;
-        if (simulated) { end(); return; }
+        if (simulated) {
+            // The preview can rehearse a failed quit: the debug activity asks for it.
+            if (simulateQuitFailure && companion != null) { companion.showQuitFailed(QUIT_KEPT); return; }
+            end();
+            return;
+        }
         quitPending = true;
         notifyCompanion();
         final CompanionView ownerCompanion = companion;
@@ -354,9 +369,9 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
             String failure = null;
             try {
                 NvHTTP http = new NvHTTP(host.activeAddress, host.httpsPort, null, null, null, broker);
-                if (!http.quitApp()) failure = "The computer did not close the game. Try again, or disconnect and leave it running.";
+                if (!http.quitApp()) failure = QUIT_KEPT;
             } catch (Exception e) {
-                failure = e instanceof PluginProtocol.BrokerException ? e.getMessage() : "The game could not be quit. You can disconnect and leave it running.";
+                failure = e instanceof PluginProtocol.BrokerException ? e.getMessage() : QUIT_KEPT;
             }
             final String message = failure;
             if (owner != null) owner.runOnUiThread(() -> {
@@ -364,7 +379,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                 if (ended) return;
                 if (message == null) end();
                 else if (companion != null) {
-                    companion.showMessage("Unable to quit game", message);
+                    companion.showQuitFailed(message);
                     companion.onSessionChanged();
                 }
                 else Toast.makeText(owner, message, Toast.LENGTH_LONG).show();
@@ -373,9 +388,14 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     }
 
     /** Sends a keycap's keys to the PC. */
-    void sendShortcut(PcShortcut shortcut) {
+    void sendShortcut(PcShortcut shortcut) { sendSteps(shortcut.steps()); }
+
+    /** Sends one key with modifiers held around it, as the controller keyboard's Ctrl and Alt make. */
+    void sendStroke(int vk, int modifiers) { sendSteps(PcShortcut.stroke(vk, modifiers)); }
+
+    private void sendSteps(java.util.List<PcShortcut.Step> steps) {
         if (ended || connection == null) return;
-        for (PcShortcut.Step step : shortcut.steps()) connection.sendKeyboardInput(step.key, step.direction, step.modifiers, (byte) 0);
+        for (PcShortcut.Step step : steps) connection.sendKeyboardInput(step.key, step.direction, step.modifiers, (byte) 0);
     }
 
     /** Mutes this device's media volume. The session puts it back when it ends. */
@@ -399,7 +419,19 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     void setPadMouse(boolean on) {
         if (simulated) simulatedMouse = on;
         else if (stream != null) stream.setPadMouse(on);
+        updatePill();
         notifyCompanion();
+    }
+
+    /**
+     * The pill on the game's screen: where the controller is, or that its stick is the mouse.
+     * The companion calls this each second too, since a long Start press can turn the mouse off.
+     */
+    void updatePill() {
+        if (stream == null) return;
+        if (router.companionOwns()) stream.showPill(FoldcadeStreamActivity.Pill.CONTROLLER_AWAY);
+        else if (padMouse()) stream.showPill(FoldcadeStreamActivity.Pill.STICK_MOUSE);
+        else stream.showPill(null);
     }
 
     boolean padMouse() { return simulated ? simulatedMouse : stream != null && stream.padMouse(); }

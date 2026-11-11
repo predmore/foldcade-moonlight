@@ -139,4 +139,25 @@ public class TouchpadGestureTest {
         pad.stripUp(1050);
         assertTrue(events.isEmpty());
     }
+
+    @Test public void eachGestureIsReportedSoItsHintCanRetire() {
+        List<TouchpadGesture.Gesture> learned = new ArrayList<>();
+        pad.setLearner(learned::add);
+        // A tap is a click once its double-tap window passes.
+        pad.down(0, 0, 0); pad.up(50); pad.tapTimeout();
+        assertEquals(List.of(TouchpadGesture.Gesture.CLICK), learned);
+        // A plain move teaches nothing.
+        pad.down(0, 0, 1000); pad.move(30, 0, 1, 1030); pad.up(1060);
+        assertEquals(1, learned.size());
+        // Two-finger tap, two-finger drag, and double-tap-and-slide.
+        pad.down(0, 0, 2000); pad.pointers(2, 0, 0, false); pad.up(2100);
+        pad.down(0, 0, 3000); pad.pointers(2, 0, 0, false); pad.move(0, 20, 2, 3030); pad.up(3060);
+        pad.down(0, 0, 4000); pad.up(4050); pad.down(0, 0, 4150); pad.move(20, 0, 1, 4180); pad.up(4300);
+        assertEquals(List.of(TouchpadGesture.Gesture.CLICK, TouchpadGesture.Gesture.RIGHT_CLICK,
+                TouchpadGesture.Gesture.SCROLL, TouchpadGesture.Gesture.DRAG), learned);
+        // The scroll strip counts as scrolling too.
+        learned.clear();
+        pad.stripDown(20, 200, 5000); pad.stripUp(5100);
+        assertEquals(List.of(TouchpadGesture.Gesture.SCROLL), learned);
+    }
 }

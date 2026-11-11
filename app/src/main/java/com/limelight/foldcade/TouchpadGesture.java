@@ -16,6 +16,11 @@ public final class TouchpadGesture {
     /** One wheel notch, in Windows' high-resolution scroll units. */
     public static final short NOTCH = 120;
 
+    /** The gestures the pad's hints teach, each reported the first time and every time it happens. */
+    public enum Gesture { CLICK, RIGHT_CLICK, SCROLL, DRAG }
+
+    public interface Learner { void used(Gesture gesture); }
+
     public interface Output {
         void move(short x, short y);
         void button(boolean right, boolean down);
@@ -30,6 +35,7 @@ public final class TouchpadGesture {
     private int maxPointers;
     // pendingTap: a left tap not yet sent. armed: a second touch on that tap, not yet a drag or a tap.
     private boolean dragging, active, moved, lifted, pendingTap, armed;
+    private Learner learner;
     private float speed = 1f;
     private boolean natural = true;
     private float stripY, stripOrigin, stripHeight, stripRemainder;
@@ -40,6 +46,11 @@ public final class TouchpadGesture {
         this.output = output;
         this.slop = slop;
     }
+
+    /** Told of each gesture as it happens, so the pad can retire that gesture's hint. */
+    public void setLearner(Learner learner) { this.learner = learner; }
+
+    private void learned(Gesture gesture) { if (learner != null) learner.used(gesture); }
 
     /** Pointer speed: 1 is the default, 0.5 half, 2 double. */
     public void setSpeed(float speed) { this.speed = Math.max(0.25f, Math.min(4f, speed)); }
@@ -95,6 +106,7 @@ public final class TouchpadGesture {
             armed = false;
             dragging = true;
             output.button(false, true);
+            learned(Gesture.DRAG);
         }
         if (!moved && !dragging) return;
         if (count == 2) {
@@ -106,6 +118,7 @@ public final class TouchpadGesture {
             scrollX -= sx;
             scrollY -= sy;
             output.scroll(sy, sx);
+            if (sx != 0 || sy != 0) learned(Gesture.SCROLL);
         } else if (maxPointers == 1) {
             remainderX += dx * gain * speed;
             remainderY += dy * gain * speed;
@@ -168,7 +181,10 @@ public final class TouchpadGesture {
         stripRemainder += -dy * 6;
         short v = delta(stripRemainder);
         stripRemainder -= v;
-        if (v != 0) output.scroll(v, (short) 0);
+        if (v != 0) {
+            output.scroll(v, (short) 0);
+            learned(Gesture.SCROLL);
+        }
     }
 
     public void stripUp(long time) {
@@ -176,6 +192,7 @@ public final class TouchpadGesture {
         stripActive = false;
         if (!stripMoved && time - stripStarted <= 250) {
             output.scroll(stripOrigin < stripHeight / 2 ? NOTCH : (short) -NOTCH, (short) 0);
+            learned(Gesture.SCROLL);
         }
     }
 
@@ -190,6 +207,7 @@ public final class TouchpadGesture {
     private void click(boolean right) {
         output.button(right, true);
         output.button(right, false);
+        learned(right ? Gesture.RIGHT_CLICK : Gesture.CLICK);
     }
 
     public static float acceleration(float dx, float dy, long elapsedMs) {
