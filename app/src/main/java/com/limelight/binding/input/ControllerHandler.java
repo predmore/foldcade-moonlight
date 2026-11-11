@@ -295,27 +295,34 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Foldcade companion hooks. The bottom screen can take the controller from the game, and
     // switch Moonlight's mouse emulation without the long Start press.
     private boolean mouseEmulationForAll;
-    private boolean inputSuspended;
+    private final InputSuspension suspension = new InputSuspension();
 
     /**
      * While suspended nothing from a controller reaches the PC: buttons, sticks, triggers, direct
-     * (USB driver) reports, motion sensors, and emulated mouse input. Suspending first lets go of
-     * everything held and stills the gyro, so the game sees a controller at rest.
+     * (USB driver) reports, motion sensors, controller touchpads, and emulated mouse input.
+     * Suspending first lets go of everything held, lifts every touchpad finger and stills the
+     * gyro, so the game sees a controller at rest. Sends on other threads are serialised with it
+     * ({@link InputSuspension}), so none can land after the controller was put at rest.
      */
     public void setInputSuspended(boolean suspended) {
-        if (suspended == inputSuspended) {
-            return;
-        }
-        if (suspended) {
+        suspension.set(suspended, () -> {
             releaseAllInput();
+            if (stopped) {
+                return;
+            }
             for (int i = 0; i < inputDeviceContexts.size(); i++) {
                 InputDeviceContext context = inputDeviceContexts.valueAt(i);
-                if (context.gyroListener != null && !stopped) {
+                if (!context.assignedControllerNumber) {
+                    continue;
+                }
+                if (context.gyroListener != null) {
                     conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0.f, 0.f, 0.f);
                 }
+                if (context.touchpadXRange != null && context.touchpadYRange != null) {
+                    conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0);
+                }
             }
-        }
-        inputSuspended = suspended;
+        });
     }
 
     /** Lets go of every button, stick and trigger on the PC, as if the player released them all. */
@@ -392,7 +399,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
             context.mouseEmulationLastInputMap = 0;
         }
-        else if (context.assignedControllerNumber && !inputSuspended) {
+        else if (context.assignedControllerNumber && !suspension.isSuspended()) {
             int inputMap = context.inputMap;
             context.inputMap = 0;
             byte lt = context.leftTrigger, rt = context.rightTrigger;
@@ -1335,9 +1342,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private void sendControllerInputPacket(GenericControllerContext originalContext) {
-        if (inputSuspended) {
-            return;
-        }
+        // Dropped while suspended; the context keeps its state for when the controller comes back.
+        suspension.emit(() -> sendControllerInputPacketNow(originalContext));
+    }
+
+    private void sendControllerInputPacketNow(GenericControllerContext originalContext) {
         assignControllerNumberIfNeeded(originalContext);
 
         // Take the context's controller number and fuse all inputs with the same number
@@ -1834,6 +1843,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return false;
         }
 
+        // A suspended controller's touchpad is part of the controller: it neither touches nor
+        // clicks the PC, and does not fall through to the mouse either.
+        if (suspension.isSuspended()) {
+            return true;
+        }
+
         // When we're working with a mouse source instead of a touchpad, we're quite limited in
         // what useful input we can provide via the controller API. The ABS_X/ABS_Y values are
         // screen coordinates rather than touchpad coordinates. For now, we will just support
@@ -1991,24 +2006,22 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private void sendEmulatedMouseMove(short x, short y) {
-        if (inputSuspended) {
-            return;
-        }
-        Vector2d vector = convertRawStickAxisToPixelMovement(x, y);
-        if (vector.getMagnitude() >= 1) {
-            conn.sendMouseMove((short)vector.getX(), (short)-vector.getY());
-        }
+        suspension.emit(() -> {
+            Vector2d vector = convertRawStickAxisToPixelMovement(x, y);
+            if (vector.getMagnitude() >= 1) {
+                conn.sendMouseMove((short)vector.getX(), (short)-vector.getY());
+            }
+        });
     }
 
     private void sendEmulatedMouseScroll(short x, short y) {
-        if (inputSuspended) {
-            return;
-        }
-        Vector2d vector = convertRawStickAxisToPixelMovement(x, y);
-        if (vector.getMagnitude() >= 1) {
-            conn.sendMouseHighResScroll((short)vector.getY());
-            conn.sendMouseHighResHScroll((short)vector.getX());
-        }
+        suspension.emit(() -> {
+            Vector2d vector = convertRawStickAxisToPixelMovement(x, y);
+            if (vector.getMagnitude() >= 1) {
+                conn.sendMouseHighResScroll((short)vector.getY());
+                conn.sendMouseHighResHScroll((short)vector.getX());
+            }
+        });
     }
 
     @TargetApi(31)
@@ -2296,9 +2309,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             @Override
             public void onSensorChanged(SensorEvent sensorEvent) {
-                if (inputSuspended) {
-                    return;
-                }
+                // Sensor callbacks arrive on their own thread: decide and send under the suspension's lock.
+                suspension.emit(() -> report(sensorEvent));
+            }
+
+            private void report(SensorEvent sensorEvent) {
                 // Android will invoke our callback any time we get a new reading,
                 // even if the values are the same as last time. Don't report a
                 // duplicate set of values to save bandwidth.
@@ -2948,6 +2963,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                       float leftStickX, float leftStickY,
                                       float rightStickX, float rightStickY,
                                       float leftTrigger, float rightTrigger) {
+        // USB reports arrive on the driver's thread. Updating the state and sending it happen
+        // together, so a suspension on the main thread comes wholly before or after a report.
+        suspension.locked(() -> reportControllerStateNow(controllerId, buttonFlags,
+                leftStickX, leftStickY, rightStickX, rightStickY, leftTrigger, rightTrigger));
+    }
+
+    private void reportControllerStateNow(int controllerId, int buttonFlags,
+                                          float leftStickX, float leftStickY,
+                                          float rightStickX, float rightStickY,
+                                          float leftTrigger, float rightTrigger) {
         GenericControllerContext context = usbDeviceContexts.get(controllerId);
         if (context == null) {
             return;
