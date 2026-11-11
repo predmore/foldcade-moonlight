@@ -34,13 +34,13 @@ Every provider call checks that it runs off the main thread and rechecks the tru
 The companion uses platform views and a dark theme, with a game/PC header, one-line performance strip, large touchpad, and three buttons. The touchpad's hint disappears after its first use.
 
 - One finger moves the cursor relatively, with speed-based acceleration and fractional motion accumulation. Tap clicks left.
-- A two-finger tap clicks right. A two-finger drag sends high-resolution vertical and horizontal scroll.
-- Double-tap and hold drags with the left button down. Pointer cancellation releases a held button; lifting one finger after scrolling cannot jump the cursor.
+- A two-finger tap clicks right. A two-finger drag sends high-resolution vertical and horizontal scroll. The page follows the fingers on both axes.
+- A left tap is sent 300 ms late, so a second touch can become a drag without a double-click first. Double-tap and move drags with the left button down; two quick taps double-click. Pointer cancellation releases a held button; lifting one finger after scrolling cannot jump the cursor.
 - **Keyboard** enables a bottom-display editor and opens the system IME. Committed text goes through `NvConnection.sendUtf8Text`; keys use `Game`'s existing `KeyboardTranslator` path. Back first hides the keyboard. The touchpad and stats collapse while typing to keep the buttons reachable above large IMEs.
 - **Disconnect** finishes both activities and stops the connection, leaving the PC game running. Back asks for confirmation before disconnecting.
 - **Quit game** asks for confirmation, then calls upstream `NvHTTP.quitApp()` through the broker (`cancel` followed by `serverinfo` verification). A failure keeps the session open and shows a message.
 
-The companion window is non-focusable while the keyboard is hidden so touching it does not steal controller focus. While the keyboard is open it becomes focusable. Any key or generic motion events received by the companion are forwarded to the stream's existing handlers, including gamepad events. Restoring the non-focusable flag after IME dismissal returns focus to the stream. Both activities allow Android's multi-display resume behavior; the plugin stream does not inherit upstream `Game`'s `noHistory` task setting.
+The companion window stays focusable. Launching it on the bottom display makes that display the focused one, so a non-focusable window there would leave controller input with nowhere to go. Every key and controller motion the companion receives is forwarded to the stream's existing handlers, so the controller drives the game whichever screen was touched last. The stream keeps upstream's handling when it holds focus itself. Both activities allow Android's multi-display resume behavior; the plugin stream does not inherit upstream `Game`'s `noHistory` task setting.
 
 Stats come from the decoder's numeric performance counters, approximately once per second, using the same recent windows as the overlay: rendered FPS, estimated network RTT, mean decoder time, network frame loss percentage, and stream resolution/codec. No overlay text is parsed. The top overlay and picture-in-picture are disabled only for the plugin session; saved standalone preferences are unchanged.
 

@@ -89,9 +89,13 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         if (active == this) active = null;
         FoldcadeStreamActivity oldStream = stream;
         CompanionActivity oldCompanion = companion;
+        NvConnection oldConnection = connection;
         stream = null;
         companion = null;
         connection = null;
+        // Game only stops a connection once it has reported connected. Stopping here too covers a
+        // disconnect while the native start is still running. NvConnection.stop is idempotent.
+        if (oldConnection != null) new Thread(oldConnection::stop, "Foldcade-plugin-stop").start();
         if (oldCompanion != null) oldCompanion.finish();
         if (oldStream != null) oldStream.finish();
     }

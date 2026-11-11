@@ -16,6 +16,9 @@ public class TouchpadGestureTest {
     @Test public void tapAndTwoFingerTapClickCorrectButtons() {
         pad.down(10, 10, 0);
         pad.up(80);
+        assertTrue(events.isEmpty());
+        assertTrue(pad.hasPendingTap());
+        pad.tapTimeout();
         assertEquals(List.of("left:true", "left:false"), events);
         events.clear();
         pad.down(10, 10, 1000);
@@ -42,13 +45,12 @@ public class TouchpadGestureTest {
         pad.pointers(2, 10, 20, true);
         pad.move(100, 100, 1, 60);
         pad.up(80);
-        assertEquals(List.of("scroll:-80:0"), events);
+        assertEquals(List.of("scroll:80:0"), events);
     }
 
     @Test public void doubleTapHoldDragsAndCancelReleases() {
         pad.down(0, 0, 0);
         pad.up(50);
-        events.clear();
         pad.down(0, 0, 150);
         pad.move(20, 0, 1, 180);
         pad.cancel();
@@ -66,5 +68,28 @@ public class TouchpadGestureTest {
         pad.down(0, 0, 1000);
         pad.up(1500);
         assertTrue(events.isEmpty());
+    }
+
+    @Test public void quickDoubleTapDoubleClicks() {
+        pad.down(0, 0, 0);
+        pad.up(50);
+        pad.down(0, 0, 150);
+        pad.up(200);
+        pad.tapTimeout();
+        assertEquals(List.of("left:true", "left:false", "left:true", "left:false"), events);
+    }
+
+    @Test public void lateSecondTapSendsFirstClickFirst() {
+        pad.down(0, 0, 0);
+        pad.up(50);
+        pad.down(0, 0, 1000);
+        assertEquals(List.of("left:true", "left:false"), events);
+    }
+
+    @Test public void horizontalScrollFollowsFingers() {
+        pad.down(0, 0, 0);
+        pad.pointers(2, 0, 0, false);
+        pad.move(20, 0, 2, 30);
+        assertEquals(List.of("scroll:0:-80"), events);
     }
 }

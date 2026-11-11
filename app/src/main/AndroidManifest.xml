@@ -150,6 +150,8 @@
         </activity>
         <activity android:name=".foldcade.FoldcadePlayActivity"
             android:exported="true"
+            android:taskAffinity="${applicationId}.play"
+            android:excludeFromRecents="true"
             android:resizeableActivity="true"
             android:theme="@style/FoldcadeCompanionTheme">
             <intent-filter>

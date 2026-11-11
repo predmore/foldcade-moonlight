@@ -27,7 +27,7 @@ import com.limelight.R;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 
-/** Bottom-panel controls. Non-focusable except while the local IME is in use. */
+/** Bottom-panel controls. Forwards every key and controller motion it receives to the stream. */
 public class CompanionActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FoldcadeSession session;
@@ -51,6 +51,8 @@ public class CompanionActivity extends Activity {
         }
     };
 
+    private final Runnable sendPendingTap = () -> { if (gesture != null) gesture.tapTimeout(); };
+
     protected FoldcadeSession obtainSession() { return FoldcadeSession.find(getIntent()); }
 
     @Override protected void onCreate(Bundle state) {
@@ -58,8 +60,10 @@ public class CompanionActivity extends Activity {
         session = obtainSession();
         if (session == null) { finish(); return; }
         session.attach(this);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        // The window stays focusable. Launching it makes the bottom display the focused one, and a
+        // non-focusable window there would leave controller input with no window at all. Every key
+        // and controller motion it receives is forwarded to the stream instead.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         getWindow().setStatusBarColor(Color.rgb(16, 20, 26));
         getWindow().setNavigationBarColor(Color.rgb(16, 20, 26));
@@ -195,7 +199,11 @@ public class CompanionActivity extends Activity {
             case MotionEvent.ACTION_POINTER_DOWN: gesture.pointers(count, x, y, false); break;
             case MotionEvent.ACTION_POINTER_UP: gesture.pointers(count, x, y, true); break;
             case MotionEvent.ACTION_MOVE: gesture.move(x, y, count, event.getEventTime()); break;
-            case MotionEvent.ACTION_UP: gesture.up(event.getEventTime()); break;
+            case MotionEvent.ACTION_UP:
+                gesture.up(event.getEventTime());
+                handler.removeCallbacks(sendPendingTap);
+                if (gesture.hasPendingTap()) handler.postDelayed(sendPendingTap, TouchpadGesture.DOUBLE_TAP_MS);
+                break;
             case MotionEvent.ACTION_CANCEL: gesture.cancel(); break;
             default: break;
         }
@@ -212,7 +220,6 @@ public class CompanionActivity extends Activity {
         keyboard.setText(open ? R.string.foldcade_hide_keyboard : R.string.foldcade_keyboard);
         InputMethodManager ime = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (open) {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
             editor.requestFocus();
             editor.post(() -> {
                 if (keyboardOpen && hasWindowFocus()) showIme();
@@ -220,7 +227,6 @@ public class CompanionActivity extends Activity {
         } else {
             ime.hideSoftInputFromWindow(editor.getWindowToken(), 0);
             editor.clearFocus();
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         }
     }
 
@@ -270,6 +276,13 @@ public class CompanionActivity extends Activity {
 
     private boolean isController(KeyEvent event) {
         return event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK);
+    }
+
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        // Controller sticks and triggers go to the stream before any focused view can take them.
+        if (session != null && (event.isFromSource(InputDevice.SOURCE_JOYSTICK) || event.isFromSource(InputDevice.SOURCE_GAMEPAD))
+                && session.motion(event)) return true;
+        return super.dispatchGenericMotionEvent(event);
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent event) {
