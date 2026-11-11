@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade Moonlight art in Foldcade's symbol style: one ink, 24-unit grid. Esc: an arrow leaving its box -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12.5,4 H6.5 A2.5,2.5 0 0 0 4,6.5 V17.5 A2.5,2.5 0 0 0 6.5,20 H17.5 A2.5,2.5 0 0 0 20,17.5 V11.5"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M10.5,13.5 L19.5,4.5 M14,4.5 H19.5 V10"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

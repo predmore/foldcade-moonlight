@@ -36,7 +36,8 @@ public final class FoldcadePlayActivity extends Activity {
                 try {
                     broker.hello();
                     ComputerDetails host = broker.host();
-                    runOnUiThread(() -> start(request, host, broker));
+                    Appearance appearance = broker.appearance();
+                    runOnUiThread(() -> start(request, host, broker, appearance));
                 } catch (IOException | RuntimeException e) {
                     runOnUiThread(() -> fail(e instanceof IOException ? e.getMessage() : PluginProtocol.userMessage("internal")));
                 }
@@ -46,7 +47,7 @@ public final class FoldcadePlayActivity extends Activity {
         }
     }
 
-    private void start(PluginProtocol.PlayRequest request, ComputerDetails host, BrokerClient broker) {
+    private void start(PluginProtocol.PlayRequest request, ComputerDetails host, BrokerClient broker, Appearance appearance) {
         if (isFinishing() || isDestroyed()) return;
         if (Build.VERSION.SDK_INT < 26) { finish(); return; }
         try {
@@ -54,7 +55,7 @@ public final class FoldcadePlayActivity extends Activity {
                 fail("A stream is already open. Disconnect it before starting another game.");
                 return;
             }
-            pendingSession = FoldcadeSession.create(request, host, broker);
+            pendingSession = FoldcadeSession.create(request, host, broker, appearance);
             Intent stream = new Intent(this, FoldcadeStreamActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                     .putExtra(PluginProtocol.SESSION, pendingSession.id)

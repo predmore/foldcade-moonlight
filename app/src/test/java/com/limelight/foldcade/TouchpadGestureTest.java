@@ -92,4 +92,51 @@ public class TouchpadGestureTest {
         pad.move(20, 0, 2, 30);
         assertEquals(List.of("scroll:0:-80"), events);
     }
+
+    @Test public void naturalScrollOffTurnsTwoFingerScrollAround() {
+        pad.setNaturalScroll(false);
+        pad.down(0, 0, 0);
+        pad.pointers(2, 0, 0, false);
+        pad.move(0, 20, 2, 30);
+        assertEquals(List.of("scroll:-80:0"), events);
+    }
+
+    @Test public void pointerSpeedScalesMovement() {
+        pad.down(0, 0, 0);
+        pad.move(20, 0, 1, 100);
+        int normal = Integer.parseInt(events.get(0).split(":")[1]);
+        events.clear();
+        pad.setSpeed(2f);
+        pad.down(0, 0, 1000);
+        pad.move(20, 0, 1, 1100);
+        int fast = Integer.parseInt(events.get(0).split(":")[1]);
+        assertTrue(fast >= normal * 2 - 1);
+    }
+
+    @Test public void stripSlidesLikeAWheelAndIgnoresNaturalScroll() {
+        pad.setNaturalScroll(true);
+        pad.stripDown(50, 200, 0);
+        pad.stripMove(60);
+        pad.stripMove(70);
+        pad.stripUp(400);
+        // Down the strip is down the page; the slop's 10 dp are not lost once it moves.
+        assertEquals(List.of("scroll:-60:0", "scroll:-60:0"), events);
+    }
+
+    @Test public void stripTapScrollsOneNotchByHalf() {
+        pad.stripDown(20, 200, 0);
+        pad.stripUp(100);
+        pad.stripDown(180, 200, 1000);
+        pad.stripUp(1100);
+        assertEquals(List.of("scroll:120:0", "scroll:-120:0"), events);
+    }
+
+    @Test public void slowStripPressIsNotATap() {
+        pad.stripDown(20, 200, 0);
+        pad.stripUp(600);
+        pad.stripDown(20, 200, 1000);
+        pad.stripCancel();
+        pad.stripUp(1050);
+        assertTrue(events.isEmpty());
+    }
 }

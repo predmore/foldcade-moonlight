@@ -86,6 +86,22 @@ public final class BrokerClient implements NvHTTP.RequestTransport {
         throw new PluginProtocol.BrokerException("unknown_host");
     }
 
+    /**
+     * Foldcade's current theme, from its optional {@code appearance} method. A Foldcade without it,
+     * or any failure, gives Afterglow: the companion never waits on or fails for its colours.
+     */
+    @SuppressWarnings("deprecation")
+    public Appearance appearance() {
+        try {
+            Bundle reply = call("appearance", null, null);
+            java.util.Map<String, Object> values = new java.util.HashMap<>();
+            for (String key : reply.keySet()) values.put(key, reply.get(key));
+            return Appearance.fromReply(values);
+        } catch (IOException | RuntimeException e) {
+            return Appearance.AFTERGLOW;
+        }
+    }
+
     @Override
     @SuppressWarnings("deprecation")
     public String request(String path, String query) throws IOException {
@@ -94,7 +110,8 @@ public final class BrokerClient implements NvHTTP.RequestTransport {
         args.putString("path", path);
         if (query != null) args.putString("query", query);
         // Only a game Foldcade started may be launched or resumed; the token proves which one.
-        if ("launch".equals(path) || "resume".equals(path)) args.putString("token", launchToken);
+        // Every other request carries it too, which keeps a long session's token alive (contract §3).
+        args.putString("token", launchToken);
         Bundle reply = call("gamestream.request", hostUuid, args);
         return PluginProtocol.responseBody(reply.get("status"), reply.get("body"));
     }

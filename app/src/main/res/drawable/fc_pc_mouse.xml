@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade Moonlight art in Foldcade's symbol style: one ink, 24-unit grid. Mouse: a body with its wheel cut out -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2.5 H12 A6,6 0 0 1 18,8.5 V15.5 A6,6 0 0 1 12,21.5 H12 A6,6 0 0 1 6,15.5 V8.5 A6,6 0 0 1 12,2.5 ZM12,6 H12 A1,1 0 0 1 13,7 V9.5 A1,1 0 0 1 12,10.5 H12 A1,1 0 0 1 11,9.5 V7 A1,1 0 0 1 12,6 Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>

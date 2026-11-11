@@ -1,59 +1,98 @@
 package com.limelight.foldcade;
 
 import android.app.ActivityOptions;
+import android.content.Context;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
+import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.widget.Toast;
 
+import com.limelight.binding.input.ControllerHandler;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /** One in-process session; its unguessable token never grants broker access. UI methods run on main. */
 public final class FoldcadeSession implements NvHTTP.RequestTransport {
+    /** How often a running stream renews Foldcade's launch token (contract §3). */
+    static final long KEEP_ALIVE_MINUTES = 2;
+
+    /** The companion's view of the session. Every call is on the main thread. */
+    interface CompanionView {
+        void finish();
+        void toggleKeyboard();
+        void confirmDisconnect();
+        void showMessage(String title, String message);
+        void onNavKey(KeyEvent event);
+        void onNavMotion(MotionEvent event);
+        void onSessionChanged();
+    }
+
     private static FoldcadeSession active;
     public final String id = UUID.randomUUID().toString();
     public final String title, pcName;
     final BrokerClient broker;
     final ComputerDetails host;
-    final int bottomDisplay;
+    final int topDisplay, bottomDisplay;
     public final boolean simulated;
+    public final Appearance appearance;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final ControllerRouter router = new ControllerRouter();
+    private Intent streamIntent;
     private FoldcadeStreamActivity stream;
-    private CompanionActivity companion;
+    private CompanionView companion;
     private NvConnection connection;
-    private boolean quitPending;
+    private ScheduledExecutorService keepAlive;
+    private boolean quitPending, mutedHere, simulatedMouse;
+    private Map<String, String> applied;
     public volatile boolean ended;
+    /** A settings change is replacing the stream with a new one; the session and companion stay. */
+    public volatile boolean restarting;
     public volatile StreamStats stats;
     /** The user-facing reason the broker refused or failed the last request, if it did. */
     public volatile String brokerFailure;
 
-    private FoldcadeSession(String title, String pcName, int bottomDisplay,
-                            ComputerDetails host, BrokerClient broker, boolean simulated) {
+    private FoldcadeSession(String title, String pcName, int topDisplay, int bottomDisplay, ComputerDetails host,
+                            BrokerClient broker, boolean simulated, Appearance appearance) {
         this.title = title;
         this.pcName = pcName;
+        this.topDisplay = topDisplay;
         this.bottomDisplay = bottomDisplay;
         this.host = host;
         this.broker = broker;
         this.simulated = simulated;
+        this.appearance = appearance != null ? appearance : Appearance.AFTERGLOW;
     }
 
-    static FoldcadeSession create(PluginProtocol.PlayRequest request, ComputerDetails host, BrokerClient broker) {
-        active = new FoldcadeSession(request.title, host.name, request.bottomDisplay, host, broker, false);
+    static FoldcadeSession create(PluginProtocol.PlayRequest request, ComputerDetails host, BrokerClient broker,
+                                  Appearance appearance) {
+        active = new FoldcadeSession(request.title, host.name, request.topDisplay, request.bottomDisplay, host,
+                broker, false, appearance);
         return active;
     }
 
     // Called only by the debug source-set activity; no release intent can enable simulation.
     static FoldcadeSession simulated(int displayId) {
         if (active != null) throw new IllegalStateException("A session is already running");
-        active = new FoldcadeSession("Companion preview", "Simulated computer", displayId, null, null, true);
+        active = new FoldcadeSession("Companion preview", "Simulated computer", -1, displayId, null, null, true, null);
         return active;
     }
 
     public static FoldcadeSession current() { return active; }
+
+    /** The stream's own intent, kept so a settings change can open a fresh stream for this session. */
+    void setStreamIntent(Intent intent) { streamIntent = new Intent(intent); }
 
     @Override public String request(String path, String query) throws java.io.IOException {
         if (ended || broker == null) throw new java.io.IOException("The streaming session has ended.");
@@ -77,7 +116,17 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     void attach(FoldcadeStreamActivity activity, NvConnection connection) {
         this.stream = activity;
         this.connection = connection;
-        DisplayManager displays = (DisplayManager) activity.getSystemService(android.content.Context.DISPLAY_SERVICE);
+        boolean replaced = restarting;
+        restarting = false;
+        brokerFailure = null;
+        applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of(activity));
+        startKeepAlive();
+        if (companion != null) {
+            companion.onSessionChanged();
+            return;
+        }
+        if (replaced) return;
+        DisplayManager displays = (DisplayManager) activity.getSystemService(Context.DISPLAY_SERVICE);
         if (android.os.Build.VERSION.SDK_INT >= 26 && bottomDisplay >= 0 && displays.getDisplay(bottomDisplay) != null) {
             try {
                 Intent intent = new Intent(activity, CompanionActivity.class)
@@ -90,24 +139,186 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         }
     }
 
-    void attach(CompanionActivity activity) { companion = activity; }
+    void attach(CompanionView activity) {
+        companion = activity;
+        if (simulated) applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of((Context) activity));
+    }
+
+    boolean isStream(FoldcadeStreamActivity activity) { return activity == stream; }
+
+    /** A stream activity finished. Only the current one ends the session; one replaced by a restart does not. */
+    void streamFinished(FoldcadeStreamActivity activity) {
+        if (activity == stream || (stream == null && !restarting)) end();
+    }
 
     public void end() {
         if (ended) return;
         ended = true;
         if (active == this) active = null;
         FoldcadeStreamActivity oldStream = stream;
-        CompanionActivity oldCompanion = companion;
+        CompanionView oldCompanion = companion;
         NvConnection oldConnection = connection;
         stream = null;
         companion = null;
         connection = null;
+        if (keepAlive != null) keepAlive.shutdownNow();
+        main.removeCallbacksAndMessages(null);
+        if (mutedHere && oldCompanion != null) setMuted((Context) oldCompanion, false);
         // Game only stops a connection once it has reported connected. Stopping here too covers a
         // disconnect while the native start is still running. NvConnection.stop is idempotent.
         if (oldConnection != null) new Thread(oldConnection::stop, "Foldcade-plugin-stop").start();
         if (oldCompanion != null) oldCompanion.finish();
         if (oldStream != null) oldStream.finish();
     }
+
+    /** Renews the launch token while the session lasts, so a resume after a long game still works. */
+    private void startKeepAlive() {
+        if (keepAlive != null || simulated || broker == null) return;
+        keepAlive = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "Foldcade-plugin-keepalive");
+            thread.setDaemon(true);
+            return thread;
+        });
+        keepAlive.scheduleWithFixedDelay(() -> {
+            if (ended) return;
+            try {
+                broker.request("serverinfo", null);
+            } catch (Exception ignored) {
+                // A missed renewal only matters if the next one misses too; the stream itself is unaffected.
+            }
+        }, KEEP_ALIVE_MINUTES, KEEP_ALIVE_MINUTES, TimeUnit.MINUTES);
+    }
+
+    // ---- The stream's settings ----
+
+    /** Labels of settings changed since the running stream started. Empty when it is up to date. */
+    java.util.List<String> pendingSettings(Context context) {
+        return CompanionSettings.INSTANCE.pending(applied, CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of(context)));
+    }
+
+    /**
+     * Applies stream settings: disconnects, leaving the game running, and resumes it in a new stream
+     * with the same launch token. Foldcade keeps that token alive while requests carry it.
+     */
+    void restartStream() {
+        if (ended || restarting) return;
+        if (simulated) {
+            restarting = true;
+            stats = null;
+            notifyCompanion();
+            main.postDelayed(() -> {
+                if (ended) return;
+                restarting = false;
+                if (companion != null) applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of((Context) companion));
+                notifyCompanion();
+            }, 1600);
+            return;
+        }
+        FoldcadeStreamActivity old = stream;
+        NvConnection oldConnection = connection;
+        if (old == null || streamIntent == null) return;
+        restarting = true;
+        stats = null;
+        stream = null;
+        connection = null;
+        router.setCompanionOwns(false);
+        notifyCompanion();
+        old.finish();
+        new Thread(() -> {
+            if (oldConnection != null) oldConnection.stop();
+            main.post(this::openReplacementStream);
+        }, "Foldcade-plugin-restart").start();
+    }
+
+    private void openReplacementStream() {
+        if (ended) return;
+        Context context = companion != null ? (Context) companion : null;
+        // Foldcade sessions only exist on Android 8 and later; see FoldcadePlayActivity.
+        if (context == null || android.os.Build.VERSION.SDK_INT < 26) { end(); return; }
+        try {
+            Intent intent = new Intent(streamIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            context.startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(topDisplay).toBundle());
+        } catch (RuntimeException e) {
+            restarting = false;
+            companion.showMessage("Unable to restart the stream", "The game is still running on your computer. Start it again from Foldcade.");
+            end();
+        }
+    }
+
+    // ---- Who has the controller ----
+
+    public boolean companionOwnsInput() { return router.companionOwns(); }
+
+    /** The player's deliberate choice: the Thor's Back button, Ctrl+Alt+Shift+M, or the companion's own chip. */
+    void setCompanionOwnsInput(boolean owns) {
+        if (ended || owns == router.companionOwns()) return;
+        router.setCompanionOwns(owns);
+        // Nothing the game was holding stays held on the PC while the companion has the controller.
+        if (owns && stream != null) stream.releaseGameInput();
+        if (stream != null) stream.showControllerAway(owns);
+        notifyCompanion();
+    }
+
+    /**
+     * Routes a key from either screen. False means the game takes it as usual. True means routing
+     * consumed it: the ownership key, or a key the companion's controls now own.
+     */
+    boolean interceptKey(KeyEvent event) {
+        if (ended || passesThrough(event)) return false;
+        boolean ownershipKey = isOwnershipKey(event);
+        switch (router.key(ControllerRouter.keyId(event.getDeviceId(), event.getKeyCode()),
+                event.getAction() == KeyEvent.ACTION_DOWN, event.getRepeatCount(), ownershipKey)) {
+            case TOGGLE:
+                setCompanionOwnsInput(!router.companionOwns());
+                return true;
+            case DROP:
+                return true;
+            case COMPANION:
+                if (companion != null) companion.onNavKey(event);
+                return true;
+            case GAME:
+            default:
+                return false;
+        }
+    }
+
+    /** Sticks and the hat steer the companion while it owns the controller; otherwise they go to the game. */
+    boolean interceptMotion(MotionEvent event) {
+        if (ended || !router.companionOwns()) return false;
+        if (!event.isFromSource(InputDevice.SOURCE_JOYSTICK) && !event.isFromSource(InputDevice.SOURCE_GAMEPAD)) return false;
+        if (companion != null) companion.onNavMotion(event);
+        return true;
+    }
+
+    /** Volume, power and the IME's own keys never change hands. */
+    private static boolean passesThrough(KeyEvent event) {
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN: case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_POWER: case KeyEvent.KEYCODE_HOME: case KeyEvent.KEYCODE_APP_SWITCH:
+                return true;
+            default:
+                return (event.getFlags() & (KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_VIRTUAL_HARD_KEY)) != 0;
+        }
+    }
+
+    /**
+     * The Thor's Back button sends Back from a controller that also has a real Select, so the game
+     * loses nothing when the companion takes it. A keyboard uses Ctrl+Alt+Shift+M, beside Moonlight's
+     * own Ctrl+Alt+Shift shortcuts.
+     */
+    static boolean isOwnershipKey(KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_M && event.isCtrlPressed() && event.isAltPressed() && event.isShiftPressed()) {
+            return true;
+        }
+        if (event.getKeyCode() != KeyEvent.KEYCODE_BACK) return false;
+        InputDevice device = event.getDevice();
+        if (device == null || !(event.isFromSource(InputDevice.SOURCE_GAMEPAD) || ControllerHandler.isGameControllerDevice(device))) {
+            return false;
+        }
+        return device.hasKeys(KeyEvent.KEYCODE_BUTTON_SELECT)[0];
+    }
+
+    // ---- Companion actions ----
 
     boolean toggleKeyboard() {
         if (companion == null) return false;
@@ -124,11 +335,15 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                 .setPositiveButton(com.limelight.R.string.foldcade_disconnect, (dialog, which) -> end()).show();
     }
 
+    boolean quitPending() { return quitPending; }
+
     void quitGame() {
         if (ended || quitPending) return;
         if (simulated) { end(); return; }
         quitPending = true;
-        final android.app.Activity owner = companion != null ? companion : stream;
+        notifyCompanion();
+        final CompanionView ownerCompanion = companion;
+        final android.app.Activity owner = ownerCompanion != null ? (android.app.Activity) ownerCompanion : stream;
         new Thread(() -> {
             String failure = null;
             try {
@@ -142,11 +357,50 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                 quitPending = false;
                 if (ended) return;
                 if (message == null) end();
-                else if (companion != null) companion.showMessage("Unable to quit game", message);
+                else if (companion != null) {
+                    companion.showMessage("Unable to quit game", message);
+                    companion.onSessionChanged();
+                }
                 else Toast.makeText(owner, message, Toast.LENGTH_LONG).show();
             });
         }, "Foldcade-plugin-quit").start();
     }
+
+    /** Sends a keycap's keys to the PC. */
+    void sendShortcut(PcShortcut shortcut) {
+        if (ended || connection == null) return;
+        for (PcShortcut.Step step : shortcut.steps()) connection.sendKeyboardInput(step.key, step.direction, step.modifiers, (byte) 0);
+    }
+
+    /** Mutes this device's media volume. The session puts it back when it ends. */
+    void setMuted(Context context, boolean muted) {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio == null) return;
+        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, muted ? AudioManager.ADJUST_MUTE : AudioManager.ADJUST_UNMUTE, 0);
+        // Android counts volume 0 as muted too; unmuting there means the player wants to hear it.
+        if (!muted && audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.max(1, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 4), 0);
+        }
+        mutedHere = muted;
+    }
+
+    boolean isMuted(Context context) {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        return audio != null && audio.isStreamMute(AudioManager.STREAM_MUSIC);
+    }
+
+    /** Moonlight's controller mouse: the stick moves the cursor, A and B click. */
+    void setPadMouse(boolean on) {
+        if (simulated) simulatedMouse = on;
+        else if (stream != null) stream.setPadMouse(on);
+        notifyCompanion();
+    }
+
+    boolean padMouse() { return simulated ? simulatedMouse : stream != null && stream.padMouse(); }
+
+    private void notifyCompanion() { if (companion != null) companion.onSessionChanged(); }
+
+    // ---- Input to the PC ----
 
     boolean key(KeyEvent event) {
         return !ended && stream != null && stream.onKey(null, event.getKeyCode(), event);

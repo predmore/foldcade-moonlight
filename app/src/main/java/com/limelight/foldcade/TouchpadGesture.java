@@ -6,9 +6,15 @@ package com.limelight.foldcade;
  * A left tap is held for {@link #DOUBLE_TAP_MS} so a second touch can turn it into a drag without
  * the PC seeing a double-click first. The owner calls {@link #tapTimeout()} once that window passes.
  * A quick second tap still sends a double-click.
+ *
+ * The scroll strip at the pad's edge is a wheel: sliding toward its bottom scrolls down, and a
+ * tap on its top or bottom half scrolls one notch. It ignores the natural-scrolling setting,
+ * which only turns the two-finger scroll around.
  */
 public final class TouchpadGesture {
     public static final long DOUBLE_TAP_MS = 300;
+    /** One wheel notch, in Windows' high-resolution scroll units. */
+    public static final short NOTCH = 120;
 
     public interface Output {
         void move(short x, short y);
@@ -24,11 +30,22 @@ public final class TouchpadGesture {
     private int maxPointers;
     // pendingTap: a left tap not yet sent. armed: a second touch on that tap, not yet a drag or a tap.
     private boolean dragging, active, moved, lifted, pendingTap, armed;
+    private float speed = 1f;
+    private boolean natural = true;
+    private float stripY, stripOrigin, stripHeight, stripRemainder;
+    private long stripStarted;
+    private boolean stripActive, stripMoved;
 
     public TouchpadGesture(Output output, float slop) {
         this.output = output;
         this.slop = slop;
     }
+
+    /** Pointer speed: 1 is the default, 0.5 half, 2 double. */
+    public void setSpeed(float speed) { this.speed = Math.max(0.25f, Math.min(4f, speed)); }
+
+    /** Natural scrolling moves the page with the fingers; off, two fingers scroll like a wheel. */
+    public void setNaturalScroll(boolean natural) { this.natural = natural; }
 
     public void down(float x, float y, long time) {
         cancel();
@@ -82,15 +99,16 @@ public final class TouchpadGesture {
         if (!moved && !dragging) return;
         if (count == 2) {
             // Natural scrolling on both axes: the page follows the fingers.
-            scrollX += -dx * 4;
-            scrollY += dy * 4;
+            float direction = natural ? 1 : -1;
+            scrollX += -dx * 4 * direction;
+            scrollY += dy * 4 * direction;
             short sx = delta(scrollX), sy = delta(scrollY);
             scrollX -= sx;
             scrollY -= sy;
             output.scroll(sy, sx);
         } else if (maxPointers == 1) {
-            remainderX += dx * gain;
-            remainderY += dy * gain;
+            remainderX += dx * gain * speed;
+            remainderY += dy * gain * speed;
             short mx = delta(remainderX), my = delta(remainderY);
             remainderX -= mx;
             remainderY -= my;
@@ -130,6 +148,38 @@ public final class TouchpadGesture {
         pendingTap = false;
         click(false);
     }
+
+    public void stripDown(float y, float height, long time) {
+        stripActive = true;
+        stripMoved = false;
+        stripY = stripOrigin = y;
+        stripHeight = height;
+        stripStarted = time;
+        stripRemainder = 0;
+    }
+
+    public void stripMove(float y) {
+        if (!stripActive) return;
+        float dy = y - stripY;
+        stripY = y;
+        stripMoved |= Math.abs(y - stripOrigin) > slop;
+        if (!stripMoved) return;
+        // Down the strip is down the page: a negative wheel delta.
+        stripRemainder += -dy * 6;
+        short v = delta(stripRemainder);
+        stripRemainder -= v;
+        if (v != 0) output.scroll(v, (short) 0);
+    }
+
+    public void stripUp(long time) {
+        if (!stripActive) return;
+        stripActive = false;
+        if (!stripMoved && time - stripStarted <= 250) {
+            output.scroll(stripOrigin < stripHeight / 2 ? NOTCH : (short) -NOTCH, (short) 0);
+        }
+    }
+
+    public void stripCancel() { stripActive = false; }
 
     public void cancel() {
         if (dragging) output.button(false, false);

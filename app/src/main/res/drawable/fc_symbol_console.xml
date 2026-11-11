@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Afterglow symbol: A game controller, for any game -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:pathData="M20,16 H44 C52,16 56,20 58.5,30 L61.5,43 C63,51 59,55 54,55 C50,55 47.5,52 45.5,48 L43.5,44 H20.5 L18.5,48 C16.5,52 14,55 10,55 C5,55 1,51 2.5,43 L5.5,30 C8,20 12,16 20,16 ZM16,24.12 Q16,23 17.12,23 H18.88 Q20,23 20,24.12 V27 H22.88 Q24,27 24,28.12 V29.88 Q24,31 22.88,31 H20 V33.88 Q20,35 18.88,35 H17.12 Q16,35 16,33.88 V31 H13.12 Q12,31 12,29.88 V28.12 Q12,27 13.12,27 H16 ZM39.8,26A3.2,3.2 0 1 1 46.2,26A3.2,3.2 0 1 1 39.8,26ZM46.8,32A3.2,3.2 0 1 1 53.2,32A3.2,3.2 0 1 1 46.8,32ZM28.8,33H30.2A1.3,1.3 0 0 1 31.5,34.3V34.3A1.3,1.3 0 0 1 30.2,35.6H28.8A1.3,1.3 0 0 1 27.5,34.3V34.3A1.3,1.3 0 0 1 28.8,33ZM33.8,33H35.2A1.3,1.3 0 0 1 36.5,34.3V34.3A1.3,1.3 0 0 1 35.2,35.6H33.8A1.3,1.3 0 0 1 32.5,34.3V34.3A1.3,1.3 0 0 1 33.8,33Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>
