@@ -168,12 +168,18 @@ internal fun DrawScope.drawFocusRing(fold: Fold, cornerPx: Float, alpha: Float, 
     val topLeft = Offset(bounds.left - outset, bounds.top - outset)
     val radius = CornerRadius(cornerPx + outset, cornerPx + outset)
     val brush = fold.ringBrush(ringSize, topLeft)
-    for (step in fold.ringGlowSteps downTo 1) {
-        val reach = spread * step / fold.ringGlowSteps
-        drawRoundRect(brush, topLeft, ringSize, radius, alpha = glowAlpha * alpha, style = Stroke(stroke + reach * 2f))
+    // A wide glow in four strokes shows bands; the pronounced one takes twelve, each fainter, so
+    // the glow builds to the same strength without steps.
+    val steps = if (pronounced) PRONOUNCED_GLOW_STEPS else fold.ringGlowSteps
+    val each = glowAlpha * fold.ringGlowSteps / steps
+    for (step in steps downTo 1) {
+        val reach = spread * step / steps
+        drawRoundRect(brush, topLeft, ringSize, radius, alpha = each * alpha, style = Stroke(stroke + reach * 2f))
     }
     drawRoundRect(brush, topLeft, ringSize, radius, alpha = alpha, style = Stroke(stroke))
 }
+
+private const val PRONOUNCED_GLOW_STEPS = 12
 
 /** The ring around this element while it has the controller's focus. It fades in and out. */
 @Composable

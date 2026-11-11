@@ -110,7 +110,11 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         root.addView(ComposeView(this).apply {
             setContent { CompositionLocalProvider(LocalFold provides fold) { CompanionRoot(ui, nav, this@CompanionActivity) } }
         }, FrameLayout.LayoutParams(-1, -1))
-        editor = RemoteKeyboardView(this, s) { setTyping(false) }
+        // The Thor's Back hands the controller over even while Android's keyboard is up, which
+        // would otherwise take it as "close the keyboard".
+        editor = RemoteKeyboardView(this, s, { setTyping(false) }) { event ->
+            FoldcadeSession.isOwnershipKey(event) && handleKey(event)
+        }
         root.addView(editor, FrameLayout.LayoutParams(1, 1))
         keySink = KeySink(this)
         root.addView(keySink, FrameLayout.LayoutParams(1, 1))
@@ -119,7 +123,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
 
         if (Build.VERSION.SDK_INT >= 30) {
             window.decorView.setOnApplyWindowInsetsListener { view, insets ->
-                if (ui.typing) {
+                if (ui.typing && ui.keyboard == null) {
                     if (insets.isVisible(WindowInsets.Type.ime())) imeWasVisible = true
                     else if (imeWasVisible) handler.post { setTyping(false) }
                 }
@@ -155,6 +159,12 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             nav.owned = owned
             nav.holding = null
             if (owned && nav.focused == null) nav.focused = if (ui.sheet == Sheet.None) "key:esc" else nav.focused
+            // Typing follows the controller: taken here, Android's keyboard gives way to the
+            // controller keyboard; handed back to the game, the controller keyboard closes.
+            if (ui.typing) {
+                if (owned && ui.keyboard == null) useControllerKeyboard()
+                else if (!owned && ui.keyboard != null) setTyping(false)
+            }
             window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM.takeIf { Build.VERSION.SDK_INT >= 30 } ?: HapticFeedbackConstants.VIRTUAL_KEY)
             if (!owned) stickDirection = null
         }
@@ -220,6 +230,13 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     /** A key while the companion owns the controller. */
     override fun onNavKey(event: KeyEvent) {
         val down = event.action == KeyEvent.ACTION_DOWN
+        if (ui.typing && ui.keyboard != null) {
+            val action = PcKeyboard.action(event.keyCode) ?: return
+            val moves = action == PcKeyboard.Action.Up || action == PcKeyboard.Action.Down ||
+                action == PcKeyboard.Action.Left || action == PcKeyboard.Action.Right
+            if (down && (event.repeatCount == 0 || moves || action == PcKeyboard.Action.Erase)) keyboardAction(action)
+            return
+        }
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> if (down) move(CompanionNav.Direction.Up, event.repeatCount > 0)
             KeyEvent.KEYCODE_DPAD_DOWN -> if (down) move(CompanionNav.Direction.Down, event.repeatCount > 0)
@@ -246,7 +263,32 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         if (!repeat && direction == lastMove && now - lastMoveAt < 80) return
         lastMove = direction
         lastMoveAt = now
-        nav.move(direction)
+        if (ui.typing && ui.keyboard != null) keyboardAction(PcKeyboard.Action.valueOf(direction.name)) else nav.move(direction)
+    }
+
+    /** One press on the controller keyboard: the board moves, and what it types goes to the PC. */
+    private fun keyboardAction(action: PcKeyboard.Action) {
+        val state = ui.keyboard ?: return
+        val (next, output) = state.on(action)
+        ui.keyboard = next
+        deliver(output)
+    }
+
+    override fun keyboardTap(at: PcKeyboard.Focus) {
+        val state = ui.keyboard ?: return
+        val (next, output) = state.press(at)
+        ui.keyboard = next
+        deliver(output)
+    }
+
+    private fun deliver(output: PcKeyboard.Output) {
+        val s = session ?: return
+        when (output) {
+            is PcKeyboard.Output.Text -> s.text(output.text)
+            is PcKeyboard.Output.Key -> s.sendShortcut(output.shortcut)
+            PcKeyboard.Output.Close -> setTyping(false)
+            PcKeyboard.Output.None -> Unit
+        }
     }
 
     /** L1 and R1 page through Settings' categories, as Foldcade's shoulders page its screens. */
@@ -255,10 +297,10 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         val categories = CompanionSettings.categories
         val index = categories.indexOfFirst { it.id == ui.category }
         val next = categories[Math.floorMod(index + by, categories.size)].id
+        val onCategory = nav.focused?.startsWith("cat:") == true
         ui.category = next
-        handler.post {
-            if (nav.focused?.startsWith("cat:") == true) nav.focus("cat:$next") else firstRow(ui)?.let { nav.focus(it) }
-        }
+        // The new page's rows compose next frame; the focus waits for its row to arrive.
+        if (onCategory) nav.focus("cat:$next") else (ui.lastRow[next] ?: firstRow(next))?.let { nav.focus(it) }
     }
 
     // ---- Sticks and the hat ----
@@ -267,7 +309,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     private val stickRepeat = object : Runnable {
         override fun run() {
             val direction = stickDirection ?: return
-            nav.move(direction)
+            move(direction, true)
             handler.postDelayed(this, 110)
         }
     }
@@ -331,19 +373,34 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     override fun setTyping(open: Boolean) {
         if (ui.typing == open) return
         ui.typing = open
-        showImeOnFocus = open
         imeWasVisible = false
         val ime = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        if (open) {
-            nav.focused = "type:done".takeIf { nav.owned } ?: nav.focused
+        if (open && nav.owned) {
+            // The controller is here, so the controller keyboard types; Android's stays down.
+            useControllerKeyboard()
+        } else if (open) {
+            ui.keyboard = null
+            showImeOnFocus = true
             editor.requestFocus()
-            editor.post { if (ui.typing && hasWindowFocus()) showIme() }
+            editor.post { if (ui.typing && ui.keyboard == null && hasWindowFocus()) showIme() }
         } else {
+            ui.keyboard = null
+            showImeOnFocus = false
             ime.hideSoftInputFromWindow(editor.windowToken, 0)
             editor.clearFocus()
             keySink.requestFocus()
-            if (nav.owned) nav.focused = "key:type"
+            if (nav.owned) nav.focus("key:type")
         }
+    }
+
+    /** Swaps Android's keyboard for the controller keyboard, keeping typing open. */
+    private fun useControllerKeyboard() {
+        showImeOnFocus = false
+        imeWasVisible = false
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editor.windowToken, 0)
+        editor.clearFocus()
+        keySink.requestFocus()
+        ui.keyboard = PcKeyboard.State()
     }
 
     private fun showIme() {
@@ -353,8 +410,8 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && !ui.typing && !keySink.isFocused) keySink.requestFocus()
-        if (hasFocus && ui.typing && showImeOnFocus) editor.post { showIme() }
+        if (hasFocus && (!ui.typing || ui.keyboard != null) && !keySink.isFocused) keySink.requestFocus()
+        if (hasFocus && ui.typing && ui.keyboard == null && showImeOnFocus) editor.post { showIme() }
     }
 
     override fun toggleKeyboard() = setTyping(!ui.typing)
@@ -441,6 +498,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
                 if (state == "settings-owned") handler.postDelayed({ firstRow(ui)?.let { nav.focus(it) } }, 200)
             }
             "typing" -> setTyping(true)
+            "typing-owned" -> { s.setCompanionOwnsInput(true); setTyping(true) }
             "detail" -> ui.statsDetail = true
             "message" -> showMessage("Unable to quit game", "The computer did not close the game. Try again, or disconnect and leave it running.")
             "restart" -> s.restartStream()

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +32,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import com.limelight.foldcade.CompanionNav
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -99,7 +103,7 @@ private fun EndSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActions, p
         BasicText(ui.title + " · " + ui.pcName, style = fold.hint, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Gap(height = 16.dp)
         Row(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            EndCard(nav, "end:disconnect", R.drawable.fc_ic_badge_paused, fold.focus, "Disconnect", "Game keeps running",
+            EndCard(nav, "end:disconnect", R.drawable.fc_pc_exit, fold.on, "Disconnect", "Game keeps running",
                 Modifier.weight(1f).fillMaxHeight().cascade(fold, 0, progress), hold = false, enabled = true) { actions.disconnect() }
             EndCard(nav, "end:quit", R.drawable.fc_symbol_close, fold.rose, "Quit game",
                 if (ui.quitPending) "Quitting…" else "Closes it on the PC",
@@ -181,70 +185,121 @@ private fun EndCard(
 
 /**
  * Settings, as Foldcade lays its own out: categories on the left, the chosen one's rows in a
- * card on the right. Everything a new stream reads is Moonlight's own preference; when one
- * changes, an Apply pill offers to restart the stream with it.
+ * card on the right; held upright, the categories become tabs across the top. Everything a new
+ * stream reads is Moonlight's own preference; when one changes, an Apply pill offers to restart
+ * the stream with it.
  */
 @Composable
 private fun SettingsSheet(ui: CompanionUi, nav: NavHost, actions: CompanionActions, progress: () -> Float) {
     val fold = LocalFold.current
     val category = CompanionSettings.categories.first { it.id == ui.category }
-    Column(Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp).rise(fold, progress)) {
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            Column(Modifier.width(158.dp).fillMaxHeight()) {
-                // Foldcade's page title pill: B and the page's name.
-                Row(
-                    Modifier
-                        .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
-                        .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "Close settings"; onClick { actions.closeSheet(); true } }
-                        .pointerInput(Unit) { detectTapGestures { actions.closeSheet() } }
-                        .padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Glyph(R.drawable.fc_ic_btn_b, 26.dp, null)
-                    Gap(width = 10.dp)
-                    BasicText("Settings", style = fold.title.copy(fontSize = 22.sp))
+    BoxWithConstraints(Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp).rise(fold, progress)) {
+        val portrait = maxHeight > maxWidth
+        Column(Modifier.fillMaxSize()) {
+            if (portrait) {
+                TitlePill(actions)
+                Gap(height = 10.dp)
+                Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CompanionSettings.categories.forEachIndexed { index, item ->
+                        CategoryTab(ui, nav, item.id, item.label, categoryIcon(item.id), vertical = true,
+                            modifier = Modifier.weight(1f).fillMaxHeight().cascade(fold, index, progress))
+                    }
                 }
-                Gap(height = 14.dp)
-                CompanionSettings.categories.forEachIndexed { index, item ->
-                    CategoryRow(ui, nav, item.id, item.label, categoryIcon(item.id), Modifier.cascade(fold, index, progress))
+                Gap(height = 10.dp)
+                SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxWidth())
+            } else {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(Modifier.width(158.dp).fillMaxHeight()) {
+                        TitlePill(actions)
+                        Gap(height = 14.dp)
+                        CompanionSettings.categories.forEachIndexed { index, item ->
+                            CategoryTab(ui, nav, item.id, item.label, categoryIcon(item.id), vertical = false,
+                                modifier = Modifier.fillMaxWidth().height(52.dp).cascade(fold, index, progress))
+                        }
+                    }
+                    Gap(width = 12.dp)
+                    SettingsCard(ui, nav, actions, category, progress, Modifier.weight(1f).fillMaxHeight())
                 }
             }
-            Gap(width = 12.dp)
-            val corner = 24.dp
-            val shape = RoundedCornerShape(corner)
+            Gap(height = 6.dp)
+            SettingsHints(ui, nav)
+        }
+    }
+}
+
+/** Foldcade's page title pill: B and the page's name. A tap closes the page. */
+@Composable
+private fun TitlePill(actions: CompanionActions) {
+    val fold = LocalFold.current
+    Row(
+        Modifier
+            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = "Close settings"; onClick { actions.closeSheet(); true } }
+            .pointerInput(Unit) { detectTapGestures { actions.closeSheet() } }
+            .padding(start = 6.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Glyph(R.drawable.fc_ic_btn_b, 26.dp, null)
+        Gap(width = 10.dp)
+        BasicText("Settings", style = fold.title.copy(fontSize = 22.sp))
+    }
+}
+
+/** What the buttons do where the focus is: on a row, on a category, or on Apply. */
+@Composable
+private fun SettingsHints(ui: CompanionUi, nav: NavHost) {
+    val focused = nav.focused.orEmpty()
+    HintRow(Modifier.height(30.dp)) {
+        Hint(listOf(R.drawable.fc_ic_btn_l1, R.drawable.fc_ic_btn_r1), "Page")
+        when {
+            focused == "apply" -> Hint(R.drawable.fc_ic_btn_a, "Restart")
+            focused.startsWith("set:") -> {
+                val setting = CompanionSettings.categories.flatMap { it.settings }.firstOrNull { "set:${it.key}" == focused }
+                Hint(R.drawable.fc_ic_btn_a, when (setting) {
+                    is Setting.Steps -> if (setting.auto) "Auto" else "Reset"
+                    else -> "Change"
+                })
+                Hint(R.drawable.fc_ic_btn_b, "Categories")
+            }
+            else -> {
+                Hint(R.drawable.fc_ic_btn_a, "Open")
+                Hint(R.drawable.fc_ic_btn_b, "Close")
+            }
+        }
+    }
+    @Suppress("UNUSED_VARIABLE") val version = ui.settingsVersion
+}
+
+@Composable
+private fun SettingsCard(ui: CompanionUi, nav: NavHost, actions: CompanionActions, category: CompanionSettings.Category,
+                         progress: () -> Float, modifier: Modifier) {
+    val fold = LocalFold.current
+    val shape = RoundedCornerShape(24.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .drawBehind { drawRect(fold.cardFill()) }
+            .border(1.dp, fold.ink.copy(alpha = 0.06f), shape),
+    ) {
+        val scroll = rememberScrollState()
+        // Each category has its own row slots, so the highlight never rests where an old row was.
+        val slots = remember(ui.category) { mutableStateMapOf<String, Rect>() }
+        LaunchedEffect(ui.category) { scroll.scrollTo(0) }
+        key(ui.category) {
             Column(
                 Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .clip(shape)
-                    .drawBehind { drawRect(fold.cardFill()) }
-                    .border(1.dp, fold.ink.copy(alpha = 0.06f), shape),
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 10.dp, vertical = 10.dp)
+                    .selectionHighlight(nav, slots),
             ) {
-                val scroll = rememberScrollState()
-                val slots = remember { mutableStateMapOf<String, Rect>() }
-                LaunchedEffect(ui.category) { scroll.scrollTo(0) }
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(scroll)
-                        .padding(horizontal = 10.dp, vertical = 10.dp)
-                        .selectionHighlight(nav, slots),
-                ) {
-                    category.settings.forEachIndexed { index, setting ->
-                        SettingRow(ui, nav, actions, setting, slots, Modifier.cascade(fold, index, progress))
-                    }
+                category.settings.forEachIndexed { index, setting ->
+                    SettingRow(ui, nav, actions, setting, slots, Modifier.cascade(fold, index, progress))
                 }
-                ApplyBar(ui, nav, actions)
             }
         }
-        Gap(height = 6.dp)
-        HintRow(Modifier.height(30.dp)) {
-            Hint(R.drawable.fc_ic_btn_l1, "")
-            Hint(R.drawable.fc_ic_btn_r1, "Page")
-            Hint(R.drawable.fc_ic_btn_a, "Change")
-            Hint(R.drawable.fc_ic_btn_b, "Back")
-        }
+        ApplyBar(ui, nav, actions)
     }
 }
 
@@ -255,41 +310,69 @@ private fun categoryIcon(id: String): Int = when (id) {
     else -> R.drawable.fc_pc_trackpad
 }
 
+/** Each row's symbol, at 32dp before its words, as Foldcade's Settings rows lead with theirs. */
+private fun settingIcon(setting: Setting): Int = when (setting) {
+    CompanionSettings.resolution -> R.drawable.fc_pc_resolution
+    CompanionSettings.fps -> R.drawable.fc_pc_framerate
+    CompanionSettings.bitrate -> R.drawable.fc_pc_bitrate
+    CompanionSettings.codec -> R.drawable.fc_pc_codec
+    CompanionSettings.hdr -> R.drawable.fc_ic_status_display
+    CompanionSettings.pacing -> R.drawable.fc_pc_pacing
+    CompanionSettings.stretch -> R.drawable.fc_pc_fill
+    CompanionSettings.fullRange -> R.drawable.fc_pc_range
+    CompanionSettings.overlay -> R.drawable.fc_pc_overlay
+    CompanionSettings.sops -> R.drawable.fc_ic_status_wrench
+    CompanionSettings.speakers -> R.drawable.fc_ic_status_volume_3
+    CompanionSettings.hostAudio -> R.drawable.fc_symbol_pc
+    CompanionSettings.swapButtons -> R.drawable.fc_pc_swap
+    CompanionSettings.deadzone -> R.drawable.fc_pc_stick
+    CompanionSettings.padMouse -> R.drawable.fc_pc_mouse
+    CompanionSettings.motion -> R.drawable.fc_pc_motion
+    CompanionSettings.rumble -> R.drawable.fc_pc_rumble
+    CompanionSettings.padSpeed -> R.drawable.fc_pc_pointer
+    CompanionSettings.naturalScroll -> R.drawable.fc_pc_scroll
+    else -> R.drawable.fc_pc_desktop_mouse
+}
+
+/**
+ * A category. Focus on it shows its rows; Right or A goes into them, to the row last used
+ * there or else the first.
+ */
 @Composable
-private fun CategoryRow(ui: CompanionUi, nav: NavHost, id: String, label: String, icon: Int, modifier: Modifier) {
+private fun CategoryTab(ui: CompanionUi, nav: NavHost, id: String, label: String, icon: Int, vertical: Boolean, modifier: Modifier) {
     val fold = LocalFold.current
     val navId = "cat:$id"
     val focused = nav.isFocused(navId)
     val chosen by eased(if (ui.category == id) 1f else 0f, fold.durationSelect)
+    val into = { ui.lastRow[id] ?: firstRow(id) }
     val select = {
         ui.category = id
-        firstRow(ui)?.let { nav.focus(it) }
+        into()?.let { nav.focus(it) }
     }
     LaunchedEffect(focused) { if (focused) ui.category = id }
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .navTarget(nav, navId, Layer.SETTINGS) { select() }
-            .focusRing(focused, 22.dp)
-            .drawBehind {
-                if (chosen > 0f) drawRoundRect(Brush.horizontalGradient(listOf(fold.ringStart.copy(alpha = fold.highlightStartAlpha * chosen),
-                    fold.ringEnd.copy(alpha = fold.highlightEndAlpha * chosen))), cornerRadius = CornerRadius(22.dp.toPx()))
-            }
-            .semantics(mergeDescendants = true) { role = Role.Tab; contentDescription = label; onClick { ui.category = id; true } }
-            .pointerInput(id) { detectTapGestures { ui.category = id; nav.focus(navId) } }
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Glyph(icon, 28.dp, fold.ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * chosen })
-        Gap(width = 12.dp)
-        BasicText(label, style = fold.row.copy(fontSize = 17.sp), maxLines = 1,
+    val content: @Composable () -> Unit = {
+        Glyph(icon, if (vertical) 26.dp else 28.dp, fold.ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * chosen })
+        if (vertical) Gap(height = 4.dp) else Gap(width = 12.dp)
+        BasicText(label, style = fold.row.copy(fontSize = if (vertical) 13.sp else 17.sp), maxLines = 1,
             modifier = Modifier.graphicsLayer { alpha = 0.62f + 0.38f * chosen })
     }
+    val base = modifier
+        .navTarget(nav, navId, Layer.SETTINGS, moves = if (vertical) mapOf(CompanionNav.Direction.Down to into) else mapOf(CompanionNav.Direction.Right to into)) { select() }
+        .focusRing(focused, 22.dp)
+        .drawBehind {
+            if (chosen > 0f) drawRoundRect(Brush.horizontalGradient(listOf(fold.ringStart.copy(alpha = fold.highlightStartAlpha * chosen),
+                fold.ringEnd.copy(alpha = fold.highlightEndAlpha * chosen))), cornerRadius = CornerRadius(22.dp.toPx()))
+        }
+        .semantics(mergeDescendants = true) { role = Role.Tab; contentDescription = label; onClick { ui.category = id; true } }
+        .pointerInput(id) { detectTapGestures { ui.category = id; nav.focus(navId) } }
+    if (vertical) Column(base.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { content() }
+    else Row(base.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) { content() }
 }
 
-internal fun firstRow(ui: CompanionUi): String? =
-    CompanionSettings.categories.firstOrNull { it.id == ui.category }?.settings?.firstOrNull()?.let { "set:${it.key}" }
+internal fun firstRow(category: String): String? =
+    CompanionSettings.categories.firstOrNull { it.id == category }?.settings?.firstOrNull()?.let { "set:${it.key}" }
+
+internal fun firstRow(ui: CompanionUi): String? = firstRow(ui.category)
 
 /**
  * One highlight behind the focused row. It travels to the next row and lands with a little
@@ -304,7 +387,7 @@ private fun Modifier.selectionHighlight(nav: NavHost, slots: Map<String, Rect>):
     val height = remember { Animatable(0f) }
     var placed by remember { mutableStateOf(false) }
     LaunchedEffect(slots) {
-        snapshotFlow { nav.focused?.let { slots[it] } }.collect { next ->
+        snapshotFlow { nav.focused?.takeIf { nav.pending == null }?.let { slots[it] } }.collect { next ->
             if (next == null) return@collect
             if (!placed) {
                 top.snapTo(next.top); left.snapTo(next.left); width.snapTo(next.width); height.snapTo(next.height)
@@ -321,7 +404,7 @@ private fun Modifier.selectionHighlight(nav: NavHost, slots: Map<String, Rect>):
             }
         }
     }
-    val present = nav.owned && nav.focused?.let { slots[it] } != null
+    val present = nav.owned && nav.pending == null && nav.focused?.let { slots[it] } != null
     val shown by eased(if (present) 1f else 0f)
     return drawBehind {
         if (!placed || shown <= 0f) return@drawBehind
@@ -333,6 +416,11 @@ private fun Modifier.selectionHighlight(nav: NavHost, slots: Map<String, Rect>):
     }
 }
 
+/**
+ * One row: its symbol, its words, and its control, every control ending on one edge before
+ * the chevron gutter. Left and right change a value; at a choice's first value, or a slider's
+ * lowest, Left goes back to the categories instead.
+ */
 @Composable
 private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions, setting: Setting, slots: MutableMap<String, Rect>, modifier: Modifier) {
     val fold = LocalFold.current
@@ -341,48 +429,70 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
     @Suppress("UNUSED_VARIABLE") val version = ui.settingsVersion
     val store = actions.store
     val requester = remember { BringIntoViewRequester() }
-    LaunchedEffect(focused) { if (focused) requester.bringIntoView() }
+    LaunchedEffect(focused) {
+        if (focused) {
+            ui.lastRow[ui.category] = id
+            requester.bringIntoView()
+        }
+    }
     val changed = { actions.settingChanged() }
     val rowModifier = modifier
         .fillMaxWidth()
         .bringIntoViewRequester(requester)
         .onGloballyPositioned { slots[id] = Rect(it.positionInParent(), it.size.toSize()) }
+    val icon = settingIcon(setting)
     when (setting) {
         is Setting.Toggle -> {
             val on = CompanionSettings.toggle(store, setting)
             val flip = { CompanionSettings.setToggle(store, setting, !on); changed() }
-            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS) { flip() }, nav, id, setting.label, 52.dp, { flip() }) {
+            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS) { flip() }, nav, id, icon, setting.label, 52.dp, { flip() }) {
                 ToggleSwitch(on, focused)
             }
         }
         is Setting.Choice -> {
             val value = CompanionSettings.choice(store, setting)
-            val step = { by: Int -> CompanionSettings.setChoice(store, setting, CompanionSettings.stepChoice(setting, value, by)); changed() }
-            val shown = CompanionSettings.optionLabel(setting, value)
-            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = { step(it); true }) { step(1) }, nav, id, setting.label, 52.dp, { step(1) }) {
-                ChoiceValue(shown, focused, nav.owned, step, fold.row.copy(fontSize = 16.sp))
+            val wrap = { CompanionSettings.setChoice(store, setting, CompanionSettings.stepChoice(setting, value, 1)); changed() }
+            val step = { by: Int ->
+                val next = CompanionSettings.stepChoiceBounded(setting, value, by)
+                if (next != null) { CompanionSettings.setChoice(store, setting, next); changed() }
+                next != null
+            }
+            RowShell(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = step) { wrap() }, nav, id, icon, setting.label, 52.dp, { wrap() },
+                gutter = false) {
+                ChoiceValue(CompanionSettings.optionLabel(setting, value), focused, nav.owned,
+                    CompanionSettings.canStep(setting, value, -1), CompanionSettings.canStep(setting, value, 1),
+                    { by -> step(by) }, fold.row.copy(fontSize = 16.sp))
             }
         }
         is Setting.Steps -> {
             val value = CompanionSettings.steps(store, setting)
-            val auto = if (setting === CompanionSettings.bitrate) autoBitrate(store, actions.topScreen) else null
+            val auto = if (setting.auto) autoBitrate(store, actions.topScreen) else null
             val adjust = { by: Int ->
-                val (moved, next) = CompanionSettings.stepSteps(setting, value, by)
-                if (moved) { CompanionSettings.setSteps(store, setting, next); changed() } else nav.refuse(id)
-                true
+                val (moved, next) = CompanionSettings.stepSteps(setting, value, by, auto)
+                if (moved) { CompanionSettings.setSteps(store, setting, next); changed() }
+                moved
             }
-            val index = setting.stops.indexOf(value).coerceAtLeast(0)
-            Column(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = adjust) { adjust(1) }.shakeOnRefuse(nav, id)
-                .padding(horizontal = 14.dp, vertical = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RowLabel(setting.label, focused, Modifier.weight(1f))
-                    RollingText(CompanionSettings.stepsLabel(setting, value, auto), fold.row.copy(fontSize = 16.sp, color = if (focused) fold.focus else fold.ink))
+            // A puts a slider back: Auto for bitrate, the default for the rest.
+            val reset = {
+                val back = if (setting.auto) null else setting.default
+                if (value != back) { CompanionSettings.setSteps(store, setting, back); changed() } else nav.refuse(id)
+            }
+            Row(rowModifier.navTarget(nav, id, Layer.SETTINGS, adjust = adjust) { reset() }.shakeOnRefuse(nav, id)
+                .padding(start = 14.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
+                RowSymbol(icon, focused)
+                Gap(width = 14.dp)
+                Column(Modifier.weight(1f)) {
+                    Row(Modifier.height(30.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RowLabel(setting.label, focused, Modifier.weight(1f))
+                        RollingText(CompanionSettings.stepsLabel(setting, value, auto), fold.row.copy(fontSize = 16.sp, color = if (focused) fold.focus else fold.ink))
+                    }
+                    StepTrack(CompanionSettings.fraction(setting, value, auto), setting.stops.size, { stop ->
+                        nav.focus(id)
+                        val next = setting.stops[stop]
+                        if (next != value) { CompanionSettings.setSteps(store, setting, next); changed() }
+                    }, Modifier.fillMaxWidth().semantics { contentDescription = "${setting.label} ${CompanionSettings.stepsLabel(setting, value, auto)}" })
                 }
-                StepTrack(index / (setting.stops.size - 1f), setting.stops.size, { stop ->
-                    nav.focus(id)
-                    val next = setting.stops[stop]
-                    if (next != value) { CompanionSettings.setSteps(store, setting, next); changed() }
-                }, Modifier.fillMaxWidth().semantics { contentDescription = "${setting.label} ${CompanionSettings.stepsLabel(setting, value, auto)}" })
+                Gap(width = CHEVRON_GUTTER)
             }
         }
     }
@@ -396,21 +506,35 @@ private fun autoBitrate(store: CompanionSettings.Store, topScreen: String): Int?
 }
 
 @Composable
-private fun RowShell(modifier: Modifier, nav: NavHost, id: String, label: String, height: Dp, onTap: () -> Unit, control: @Composable () -> Unit) {
+private fun RowSymbol(icon: Int, focused: Boolean) {
+    val fold = LocalFold.current
+    val lit by eased(if (focused) 1f else 0f)
+    Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+        Glyph(icon, 28.dp, fold.ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * lit })
+    }
+}
+
+/** A row's symbol, label and control. Without [gutter] the control brings its own chevron gutter. */
+@Composable
+private fun RowShell(modifier: Modifier, nav: NavHost, id: String, icon: Int, label: String, height: Dp, onTap: () -> Unit,
+                     gutter: Boolean = true, control: @Composable () -> Unit) {
     val focused = nav.isFocused(id)
     val tap by androidx.compose.runtime.rememberUpdatedState(onTap)
     Row(
         modifier
-            .height(height)
+            .heightIn(min = height)
             .shakeOnRefuse(nav, id)
             .semantics(mergeDescendants = true) { contentDescription = label; onClick { tap(); true } }
             .pointerInput(id) { detectTapGestures { nav.focus(id); tap() } }
-            .padding(horizontal = 14.dp),
+            .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        RowSymbol(icon, focused)
+        Gap(width = 14.dp)
         RowLabel(label, focused, Modifier.weight(1f))
         Gap(width = 12.dp)
         control()
+        if (gutter) Gap(width = CHEVRON_GUTTER)
     }
 }
 

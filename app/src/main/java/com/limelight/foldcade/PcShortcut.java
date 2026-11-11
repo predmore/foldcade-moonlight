@@ -20,7 +20,9 @@ public enum PcShortcut {
     CTRL_ALT_DEL(true, 0xA2, 0xA4, 0x2E),
     TAB(false, 0x09),
     ENTER(false, 0x0D),
-    BACKSPACE(false, 0x08);
+    BACKSPACE(false, 0x08),
+    LEFT(false, 0x25),
+    RIGHT(false, 0x27);
 
     public static final byte KEY_DOWN = 0x03, KEY_UP = 0x04;
     public static final byte SHIFT = 0x01, CTRL = 0x02, ALT = 0x04, META = 0x08;

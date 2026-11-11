@@ -65,6 +65,8 @@ internal fun Trackpad(
     onFirstUse: () -> Unit,
     description: String,
     modifier: Modifier = Modifier,
+    /** Typing's short pad: no hints and no click buttons, a narrower strip. */
+    compact: Boolean = false,
 ) {
     val fold = LocalFold.current
     val density = LocalDensity.current.density
@@ -157,20 +159,22 @@ internal fun Trackpad(
                         true
                     },
             ) {
-                if (hints > 0f) {
+                if (hints > 0f && !compact) {
                     Row(
                         Modifier.align(Alignment.BottomStart).padding(14.dp).graphicsLayer { alpha = hints },
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        PadHint("1", "Click")
-                        PadHint("2", "Scroll · right-click")
-                        PadHint("2×", "Hold to drag")
+                        PadHint(Fingers.One, "Click")
+                        PadHint(Fingers.Two, "Right-click")
+                        PadHint(Fingers.TwoMoving, "Scroll")
+                        PadHint(Fingers.DoubleTap, "Drag")
                     }
                 }
             }
-            ScrollStrip(gesture, Modifier.width(46.dp).fillMaxHeight())
+            ScrollStrip(gesture, Modifier.width(if (compact) 40.dp else 46.dp).fillMaxHeight(), compact)
         }
-        ClickBar(buttons, Modifier.fillMaxWidth().height(42.dp))
+        if (!compact) ClickBar(buttons, Modifier.fillMaxWidth().height(44.dp))
     }
 }
 
@@ -180,16 +184,47 @@ private fun Modifier.background(fold: Fold): Modifier = drawBehind {
     drawRect(Brush.verticalGradient(listOf(fold.ringStart.copy(alpha = 0.05f), Color.Transparent), endY = size.height * 0.5f))
 }
 
-/** A finger count in a ring and what it does. Shown until the pad's first use. */
+internal enum class Fingers { One, Two, TwoMoving, DoubleTap }
+
+/**
+ * A gesture as fingertips, and what it does: one dot clicks, two right-click, two with an
+ * up-and-down arrow scroll, and a dot in two rings is a double tap, which drags. Shown until
+ * the pad's first use.
+ */
 @Composable
-private fun PadHint(fingers: String, label: String) {
+private fun PadHint(fingers: Fingers, label: String) {
     val fold = LocalFold.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(22.dp).height(22.dp).drawBehind {
-            drawCircle(fold.ink.copy(alpha = 0.3f), size.minDimension / 2f - 1.dp.toPx(), style = Stroke(1.5.dp.toPx()))
-        }, contentAlignment = Alignment.Center) {
-            BasicText(fingers, style = fold.small.copy(color = fold.ink.copy(alpha = 0.7f), textAlign = TextAlign.Center))
-        }
+        Box(Modifier.width(if (fingers == Fingers.One || fingers == Fingers.DoubleTap) 20.dp else 32.dp).height(22.dp).drawBehind {
+            val ink = fold.ink.copy(alpha = 0.7f)
+            val r = 3.2.dp.toPx()
+            val cy = size.height / 2f
+            when (fingers) {
+                Fingers.One -> drawCircle(ink, r, Offset(size.width / 2f, cy))
+                Fingers.Two -> {
+                    drawCircle(ink, r, Offset(size.width / 2f - 5.dp.toPx(), cy))
+                    drawCircle(ink, r, Offset(size.width / 2f + 5.dp.toPx(), cy))
+                }
+                Fingers.TwoMoving -> {
+                    drawCircle(ink, r, Offset(6.dp.toPx(), cy))
+                    drawCircle(ink, r, Offset(15.dp.toPx(), cy))
+                    val x = size.width - 5.dp.toPx()
+                    val stroke = 1.6.dp.toPx()
+                    val a = 3.dp.toPx()
+                    drawLine(ink, Offset(x, cy - 8.dp.toPx()), Offset(x, cy + 8.dp.toPx()), stroke, StrokeCap.Round)
+                    drawLine(ink, Offset(x - a, cy - 8.dp.toPx() + a), Offset(x, cy - 8.dp.toPx()), stroke, StrokeCap.Round)
+                    drawLine(ink, Offset(x + a, cy - 8.dp.toPx() + a), Offset(x, cy - 8.dp.toPx()), stroke, StrokeCap.Round)
+                    drawLine(ink, Offset(x - a, cy + 8.dp.toPx() - a), Offset(x, cy + 8.dp.toPx()), stroke, StrokeCap.Round)
+                    drawLine(ink, Offset(x + a, cy + 8.dp.toPx() - a), Offset(x, cy + 8.dp.toPx()), stroke, StrokeCap.Round)
+                }
+                Fingers.DoubleTap -> {
+                    val c = Offset(size.width / 2f, cy)
+                    drawCircle(ink, r * 0.85f, c)
+                    drawCircle(ink, r * 1.9f, c, style = Stroke(1.2.dp.toPx()))
+                    drawCircle(ink.copy(alpha = 0.4f), r * 2.9f, c, style = Stroke(1.2.dp.toPx()))
+                }
+            }
+        })
         Gap(width = 6.dp)
         BasicText(label, style = fold.small.copy(color = fold.muted), maxLines = 1)
     }
@@ -200,7 +235,7 @@ private fun PadHint(fingers: String, label: String) {
  * scrolls down, and the ridges roll with the finger; a tap on either half scrolls one notch.
  */
 @Composable
-private fun ScrollStrip(gesture: TouchpadGesture, modifier: Modifier) {
+private fun ScrollStrip(gesture: TouchpadGesture, modifier: Modifier, compact: Boolean = false) {
     val fold = LocalFold.current
     val density = LocalDensity.current.density
     var roll by remember { mutableFloatStateOf(0f) }
@@ -237,14 +272,14 @@ private fun ScrollStrip(gesture: TouchpadGesture, modifier: Modifier) {
                 val chevron = 6.dp.toPx()
                 val ink = fold.ink.copy(alpha = 0.55f + 0.35f * lit)
                 val stroke = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-                val top = 18.dp.toPx()
+                val top = (if (compact) 12 else 18).dp.toPx()
                 drawPath(Path().apply { moveTo(cx - chevron, top + chevron / 2); lineTo(cx, top - chevron / 2); lineTo(cx + chevron, top + chevron / 2) }, ink, style = stroke)
-                val bottom = size.height - 18.dp.toPx()
+                val bottom = size.height - (if (compact) 12 else 18).dp.toPx()
                 drawPath(Path().apply { moveTo(cx - chevron, bottom - chevron / 2); lineTo(cx, bottom + chevron / 2); lineTo(cx + chevron, bottom - chevron / 2) }, ink, style = stroke)
                 // Ridges between the chevrons, rolling with the finger.
                 val gap = 7.dp.toPx()
-                val from = top + 18.dp.toPx()
-                val to = bottom - 18.dp.toPx()
+                val from = top + (if (compact) 12 else 18).dp.toPx()
+                val to = bottom - (if (compact) 12 else 18).dp.toPx()
                 val offset = ((roll % gap) + gap) % gap
                 var y = from + offset
                 val half = 9.dp.toPx()
@@ -264,9 +299,9 @@ private fun ClickBar(buttons: PadButtons, modifier: Modifier) {
     Row(modifier.drawBehind {
         drawLine(fold.ink.copy(alpha = fold.borderAlpha), Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
     }) {
-        ClickButton(false, buttons, "L", Modifier.weight(1f).fillMaxHeight())
+        ClickButton(false, buttons, "Click", Modifier.weight(1f).fillMaxHeight())
         Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 10.dp).drawBehind { drawRect(fold.ink.copy(alpha = 0.12f)) })
-        ClickButton(true, buttons, "R", Modifier.weight(1f).fillMaxHeight())
+        ClickButton(true, buttons, "Right-click", Modifier.weight(1f).fillMaxHeight())
     }
 }
 
@@ -299,6 +334,38 @@ private fun ClickButton(right: Boolean, buttons: PadButtons, label: String, modi
             },
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(label, style = fold.small.copy(color = fold.ink.copy(alpha = 0.4f + 0.6f * lit)))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MouseGlyph(right, lit)
+            Gap(width = 7.dp)
+            BasicText(label, style = fold.small.copy(color = fold.ink.copy(alpha = 0.7f + 0.3f * lit)))
+        }
     }
+}
+
+/** A mouse with the button this pad presses lit, so the two halves say which is which. */
+@Composable
+private fun MouseGlyph(right: Boolean, lit: Float) {
+    val fold = LocalFold.current
+    Box(Modifier.width(14.dp).height(20.dp).drawBehind {
+        val stroke = 1.5.dp.toPx()
+        val ink = fold.ink.copy(alpha = 0.7f + 0.3f * lit)
+        val w = size.width
+        val h = size.height
+        val r = w / 2f
+        // The lit half: the top quarter on its side, cut at the split.
+        val half = Path().apply {
+            if (right) {
+                moveTo(w / 2f, 0f); lineTo(w / 2f, h * 0.42f); lineTo(w, h * 0.42f); lineTo(w, r)
+                arcTo(androidx.compose.ui.geometry.Rect(0f, 0f, w, w), 0f, -90f, false); close()
+            } else {
+                moveTo(w / 2f, 0f); lineTo(w / 2f, h * 0.42f); lineTo(0f, h * 0.42f); lineTo(0f, r)
+                arcTo(androidx.compose.ui.geometry.Rect(0f, 0f, w, w), 180f, 90f, false); close()
+            }
+        }
+        drawPath(half, fold.ink.copy(alpha = 0.55f + 0.45f * lit))
+        drawRoundRect(ink, Offset(stroke / 2f, stroke / 2f), androidx.compose.ui.geometry.Size(w - stroke, h - stroke),
+            CornerRadius(r), style = Stroke(stroke))
+        drawLine(ink, Offset(w / 2f, stroke), Offset(w / 2f, h * 0.42f), stroke)
+        drawLine(ink, Offset(stroke, h * 0.42f), Offset(w - stroke, h * 0.42f), stroke)
+    })
 }

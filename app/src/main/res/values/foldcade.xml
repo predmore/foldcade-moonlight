@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="foldcade_controller_away">Controller on the bottom screen · Back returns it</string>
+    <string name="foldcade_controller_away">Controller on bottom screen · Return</string>
     <string name="foldcade_disconnect">Disconnect</string>
     <string name="foldcade_disconnect_confirm">Disconnect?</string>
     <string name="foldcade_disconnect_detail">The game will keep running on your computer.</string>

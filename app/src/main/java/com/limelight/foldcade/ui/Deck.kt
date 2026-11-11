@@ -56,6 +56,10 @@ import com.limelight.foldcade.PcShortcut
 import com.limelight.foldcade.StreamStats
 import com.limelight.foldcade.TouchpadGesture
 import kotlinx.coroutines.delay
+import com.limelight.foldcade.PcKeyboard
+import com.limelight.foldcade.StreamHealth
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 
 enum class Sheet { None, End, Settings }
 
@@ -74,10 +78,14 @@ internal class CompanionUi(val title: String, val pcName: String) {
     var pending by mutableStateOf<List<String>>(emptyList())
     var sheet by mutableStateOf(Sheet.None)
     var typing by mutableStateOf(false)
+    /** The controller keyboard while the companion has the controller; null types with Android's keyboard. */
+    var keyboard by mutableStateOf<PcKeyboard.State?>(null)
     var statsDetail by mutableStateOf(false)
     var hintsSeen by mutableStateOf(false)
     var message by mutableStateOf<Pair<String, String>?>(null)
     var category by mutableStateOf(CompanionSettings.categories.first().id)
+    /** The row last used in each category, where Right from that category lands. */
+    val lastRow = HashMap<String, String>()
     var targetFps by mutableIntStateOf(60)
     /** Bumped on every settings write, so rows read the stored values again. */
     var settingsVersion by mutableIntStateOf(0)
@@ -90,6 +98,7 @@ internal interface CompanionActions : PadButtons {
     val topScreen: String
     fun send(shortcut: PcShortcut)
     fun setTyping(open: Boolean)
+    fun keyboardTap(at: PcKeyboard.Focus)
     fun setMuted(muted: Boolean)
     fun setPadMouse(on: Boolean)
     fun takeController(take: Boolean)
@@ -129,7 +138,12 @@ internal fun CompanionRoot(ui: CompanionUi, nav: NavHost, actions: CompanionActi
             },
     ) {
         Box(Modifier.fillMaxSize().sinking(fold) { sheetShown }) {
-            if (ui.typing) TypingDeck(ui, nav, actions) else Deck(ui, nav, actions)
+            val keyboard = ui.keyboard
+            when {
+                ui.typing && keyboard != null -> ControllerTyping(ui, keyboard, actions)
+                ui.typing -> TouchTyping(ui, nav, actions)
+                else -> Deck(ui, nav, actions)
+            }
         }
         Sheets(ui, nav, actions)
         // The companion has the controller: the whole screen wears the focus ring's light.
@@ -141,23 +155,51 @@ internal fun CompanionRoot(ui: CompanionUi, nav: NavHost, actions: CompanionActi
     }
 }
 
+/**
+ * The deck. Landscape puts the rail of quick tiles beside the keys and pad; portrait, on the
+ * bottom screen held upright, lays the tiles in a row under the pad so the keys keep their width.
+ */
 @Composable
 private fun Deck(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
-    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)) {
-        Header(ui, nav)
-        Gap(height = 10.dp)
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+    BoxWithConstraints(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)) {
+        val portrait = maxHeight > maxWidth
+        Column(Modifier.fillMaxSize()) {
+            Header(ui, nav)
+            Gap(height = 10.dp)
+            if (portrait) {
                 KeysRow(nav, actions, Modifier.fillMaxWidth().height(58.dp))
                 Gap(height = 10.dp)
-                Trackpad(actions.gesture, actions, !ui.hintsSeen, actions::hintsSeen, "PC trackpad", Modifier.weight(1f).fillMaxWidth())
+                Pad(ui, nav, actions, Modifier.weight(1f).fillMaxWidth())
+                Gap(height = 10.dp)
+                Rail(ui, nav, actions, Modifier.fillMaxWidth().height(78.dp), horizontal = true)
+            } else {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        KeysRow(nav, actions, Modifier.fillMaxWidth().height(58.dp))
+                        Gap(height = 10.dp)
+                        Pad(ui, nav, actions, Modifier.weight(1f).fillMaxWidth())
+                    }
+                    Gap(width = 12.dp)
+                    Rail(ui, nav, actions, Modifier.width(84.dp).fillMaxHeight(), horizontal = false)
+                }
             }
-            Gap(width = 12.dp)
-            Rail(ui, nav, actions, Modifier.width(84.dp).fillMaxHeight())
+            Gap(height = 6.dp)
+            Footer(ui, nav, actions, Modifier.fillMaxWidth().height(34.dp))
         }
-        Gap(height = 6.dp)
-        Footer(ui, nav, actions, Modifier.fillMaxWidth().height(34.dp))
     }
+}
+
+/** The trackpad, as a place the D-pad can reach too: A there turns the stick mouse on and off. */
+@Composable
+private fun Pad(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifier: Modifier, compact: Boolean = false) {
+    val focused = nav.isFocused("pad")
+    Trackpad(
+        actions.gesture, actions, !ui.hintsSeen && !compact, actions::hintsSeen, "PC trackpad",
+        modifier
+            .navTarget(nav, if (compact) "pad:compact" else "pad", Layer.DECK, enabled = !compact) { actions.setPadMouse(!ui.padMouse) }
+            .focusRing(focused && !compact, 22.dp),
+        compact = compact,
+    )
 }
 
 @Composable
@@ -179,7 +221,10 @@ private fun Header(ui: CompanionUi, nav: NavHost) {
     }
 }
 
-/** fps and ping on a pill, with a dot that says at a glance how the stream is doing. */
+/**
+ * fps and ping on a pill, with a dot that says at a glance how the stream is doing. When the
+ * dot is amber or rose, ping gives way to what is wrong: "21 fps · 6% loss".
+ */
 @Composable
 private fun StatsPill(ui: CompanionUi, nav: NavHost) {
     val fold = LocalFold.current
@@ -189,7 +234,7 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
     val toggle = { ui.statsDetail = !ui.statsDetail }
     val dot = when {
         stats == null -> fold.muted
-        else -> when (health(stats, ui.targetFps)) { 2 -> fold.rose; 1 -> fold.attention; else -> fold.on }
+        else -> when (StreamHealth.verdict(stats, ui.targetFps).level) { 2 -> fold.rose; 1 -> fold.attention; else -> fold.on }
     }
     val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
     val waiting = stats == null
@@ -214,22 +259,9 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
         val text = when {
             ui.restarting -> "Restarting…"
             stats == null -> "Connecting…"
-            else -> String.format(locale, "%.0f fps · %d ms", stats.fps, stats.rttMs)
+            else -> StreamHealth.pillText(stats, ui.targetFps, locale)
         }
         BasicText(text, style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong), maxLines = 1)
-    }
-}
-
-/**
- * 0 healthy, 1 slipping, 2 struggling: ping, loss, and decode time against the frame budget.
- * Frame rate is not part of it: a host sends only changed frames, so a still desktop runs slow.
- */
-internal fun health(stats: StreamStats, targetFps: Int): Int {
-    val budget = 1000f / targetFps.coerceAtLeast(1)
-    return when {
-        stats.lossPercent >= 5f || stats.rttMs >= 80 || stats.decodeMs >= budget -> 2
-        stats.lossPercent >= 1f || stats.rttMs >= 35 || stats.decodeMs >= budget * 0.6f -> 1
-        else -> 0
     }
 }
 
@@ -262,7 +294,7 @@ private fun KeysRow(nav: NavHost, actions: CompanionActions, modifier: Modifier)
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val key = Modifier.weight(1f).fillMaxHeight()
         KeyCap(nav, "key:esc", R.drawable.fc_pc_escape, "Esc", "Escape", key) { actions.send(PcShortcut.ESCAPE) }
-        KeyCap(nav, "key:start", R.drawable.fc_pc_start, "Start", "Windows key", key) { actions.send(PcShortcut.START_MENU) }
+        KeyCap(nav, "key:start", R.drawable.fc_pc_start, "Win", "Windows key", key) { actions.send(PcShortcut.START_MENU) }
         KeyCap(nav, "key:alttab", R.drawable.fc_pc_switch, "Alt+Tab", "Alt Tab", key) { actions.send(PcShortcut.ALT_TAB) }
         KeyCap(nav, "key:altf4", R.drawable.fc_pc_close_window, "Alt+F4", "Alt F4, hold to send", key, danger = true) { actions.send(PcShortcut.ALT_F4) }
         KeyCap(nav, "key:cad", R.drawable.fc_pc_security, "Ctrl+Alt+Del", "Control Alt Delete, hold to send",
@@ -272,58 +304,42 @@ private fun KeysRow(nav: NavHost, actions: CompanionActions, modifier: Modifier)
 }
 
 @Composable
-private fun Rail(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        val tile = Modifier.weight(1f).fillMaxWidth()
+private fun Rail(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifier: Modifier, horizontal: Boolean) {
+    val tiles: @Composable (Modifier) -> Unit = { tile ->
         QuickTile(nav, "tile:mute", if (ui.muted) R.drawable.fc_ic_status_volume_mute else R.drawable.fc_ic_status_volume_3,
             if (ui.muted) "Muted" else "Sound", if (ui.muted) "Unmute" else "Mute", tile, on = ui.muted) { actions.setMuted(!ui.muted) }
-        QuickTile(nav, "tile:mouse", R.drawable.fc_pc_mouse, "Pad mouse", "Controller as mouse", tile, on = ui.padMouse) { actions.setPadMouse(!ui.padMouse) }
+        QuickTile(nav, "tile:mouse", R.drawable.fc_pc_mouse, "Stick mouse", "Controller stick as mouse", tile, on = ui.padMouse) { actions.setPadMouse(!ui.padMouse) }
         QuickTile(nav, "tile:settings", R.drawable.fc_ic_status_settings, "Settings", "Settings", tile, badge = ui.pending.isNotEmpty()) { actions.openSheet(Sheet.Settings) }
-        QuickTile(nav, "tile:end", R.drawable.fc_symbol_close, "End", "End session", tile) { actions.openSheet(Sheet.End) }
+        QuickTile(nav, "tile:end", R.drawable.fc_pc_exit, "End", "End session", tile) { actions.openSheet(Sheet.End) }
     }
+    if (horizontal) Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) { tiles(Modifier.weight(1f).fillMaxHeight()) }
+    else Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) { tiles(Modifier.weight(1f).fillMaxWidth()) }
+}
+
+/** What A does on the focused deck control, for the hint row. */
+private fun deckAction(nav: NavHost): String = when {
+    nav.current()?.hold == true -> "Hold"
+    nav.focused == "pad" -> "Stick mouse"
+    else -> "Select"
 }
 
 @Composable
 private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifier: Modifier) {
     val fold = LocalFold.current
     val owned by eased(if (ui.owned) 1f else 0f, fold.durationSelect)
-    var tip by remember { mutableStateOf(false) }
-    LaunchedEffect(nav.refused) {
-        if (nav.refused == null) return@LaunchedEffect
-        tip = true
-        delay(1800)
-        tip = false
-    }
+    val tip = refusalTip(nav)
     val tipShown by eased(if (tip) 1f else 0f)
     Box(modifier, contentAlignment = Alignment.CenterStart) {
         // The game has the controller: offer it here. Tapping is a deliberate choice too.
-        if (owned < 1f) Row(
-            Modifier
-                .graphicsLayer { alpha = 1f - owned }
-                .semantics(mergeDescendants = true) { role = Role.Button; onClick { actions.takeController(true); true } }
-                .pointerInput(Unit) { detectTapGestures { actions.takeController(true) } },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Hint(R.drawable.fc_ic_btn_back, "Controls here")
-        }
+        if (owned < 1f) TakeController(actions, Modifier.graphicsLayer { alpha = 1f - owned })
         if (owned > 0f) Row(
             Modifier.fillMaxWidth().graphicsLayer { alpha = owned },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
-                    .drawBehind { drawRoundRect(fold.attention.copy(alpha = 0.14f), cornerRadius = CornerRadius(size.height / 2f)) }
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Glyph(R.drawable.fc_ic_badge_paused, 18.dp, fold.attention)
-                Gap(width = 7.dp)
-                BasicText("Game input paused", style = fold.hint.copy(color = fold.attention, fontWeight = fold.strong), maxLines = 1)
-            }
+            PausedChip()
             Spacer(Modifier.weight(1f))
             HintRow {
-                val holds = nav.focused?.let { nav.targets[it]?.hold } == true
-                Hint(R.drawable.fc_ic_btn_a, if (holds) "Hold" else "Select")
+                Hint(R.drawable.fc_ic_btn_a, deckAction(nav))
                 Hint(R.drawable.fc_ic_btn_back, "Game")
             }
         }
@@ -336,12 +352,73 @@ private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, mod
     }
 }
 
-/** Typing: the system keyboard takes the lower screen; the keys a PC field needs sit just above it. */
+/**
+ * True for a moment after a hold key refuses a short press. Each refusal shows once: a screen
+ * that comes back (the deck after typing) does not replay the last one.
+ */
 @Composable
-private fun TypingDeck(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
-    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)) {
-        Header(ui, nav)
+private fun refusalTip(nav: NavHost): Boolean {
+    var tip by remember { mutableStateOf(false) }
+    val refused = nav.refused
+    LaunchedEffect(refused) {
+        val (id, count) = refused ?: return@LaunchedEffect
+        if (count <= nav.tipShown) return@LaunchedEffect
+        nav.tipShown = count
+        if (nav.targets[id]?.hold != true) return@LaunchedEffect
+        tip = true
+        delay(1800)
+        tip = false
+    }
+    return tip
+}
+
+/** Back, and "Take controller": what hands the controller to these controls. A tap does too. */
+@Composable
+private fun TakeController(actions: CompanionActions, modifier: Modifier = Modifier) {
+    val fold = LocalFold.current
+    Row(
+        modifier
+            .semantics(mergeDescendants = true) { role = Role.Button; onClick { actions.takeController(true); true } }
+            .pointerInput(Unit) { detectTapGestures { actions.takeController(true) } },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Hint(R.drawable.fc_ic_btn_back, "Take controller", fold.hint.copy(color = fold.ink))
+    }
+}
+
+/** The amber chip that says the game is not getting the controller. */
+@Composable
+private fun PausedChip(modifier: Modifier = Modifier) {
+    val fold = LocalFold.current
+    Row(
+        modifier
+            .drawBehind { drawRoundRect(fold.attention.copy(alpha = 0.14f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Glyph(R.drawable.fc_ic_badge_paused, 18.dp, fold.attention)
+        Gap(width = 7.dp)
+        BasicText("Game input paused", style = fold.hint.copy(color = fold.attention, fontWeight = fold.strong), maxLines = 1)
+    }
+}
+
+/**
+ * Typing by touch, with Android's keyboard below: a short trackpad, so clicking and scrolling
+ * need no closing, then the keys a PC field needs, just above the keyboard.
+ */
+@Composable
+private fun TouchTyping(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
+    Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
         Spacer(Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 110.dp).weight(1f, fill = false)) {
+            Pad(ui, nav, actions, Modifier.fillMaxSize(), compact = true)
+            Box(Modifier.padding(10.dp)
+                .drawBehind { drawRoundRect(Color.Black.copy(alpha = 0.55f), cornerRadius = CornerRadius(size.height / 2f)) }
+                .padding(horizontal = 10.dp, vertical = 4.dp)) {
+                TakeController(actions)
+            }
+        }
+        Gap(height = 8.dp)
         Row(Modifier.fillMaxWidth().height(54.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val key = Modifier.weight(1f).fillMaxHeight()
             KeyCap(nav, "type:esc", R.drawable.fc_pc_escape, "Esc", "Escape", key) { actions.send(PcShortcut.ESCAPE) }
@@ -349,6 +426,40 @@ private fun TypingDeck(ui: CompanionUi, nav: NavHost, actions: CompanionActions)
             KeyCap(nav, "type:back", R.drawable.fc_ic_control_erase, "Erase", "Backspace", key) { actions.send(PcShortcut.BACKSPACE) }
             KeyCap(nav, "type:enter", R.drawable.fc_pc_enter, "Enter", "Enter", key) { actions.send(PcShortcut.ENTER) }
             KeyCap(nav, "type:done", R.drawable.fc_pc_keyboard, "Done", "Hide keyboard", key) { actions.setTyping(false) }
+        }
+    }
+}
+
+/**
+ * Typing with the controller: Foldcade's controller keyboard in place of Android's, a short
+ * trackpad above it when there is room, and the paused chip so it is clear where input goes.
+ */
+@Composable
+private fun ControllerTyping(ui: CompanionUi, keyboard: PcKeyboard.State, actions: CompanionActions) {
+    val nav = remember { NavHost() }
+    BoxWithConstraints(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp)) {
+        // The keys need about 6.7 of their own widths in height; the pad takes what is left, if enough.
+        val keyUnit = (maxWidth - 28.dp) / PcKeyboard.WIDTH
+        val keysTall = keyUnit * 6.72f + 28.dp
+        val padRoom = maxHeight - 40.dp - keysTall
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+                PausedChip()
+                Spacer(Modifier.weight(1f))
+                HintRow {
+                    Hint(R.drawable.fc_ic_btn_l2, "Shift")
+                    Hint(listOf(R.drawable.fc_ic_btn_l1, R.drawable.fc_ic_btn_r1), "Cursor")
+                    Hint(R.drawable.fc_ic_btn_b, "Close")
+                }
+            }
+            // The keys keep their own height; the pad takes the rest, so nothing floats in a gap.
+            if (padRoom >= 72.dp) {
+                Gap(height = 8.dp)
+                Pad(ui, nav, actions, Modifier.fillMaxWidth().weight(1f), compact = true)
+                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.height(keysTall).fillMaxWidth())
+            } else {
+                PcKeyboardView(keyboard, actions::keyboardTap, Modifier.weight(1f).fillMaxWidth())
+            }
         }
     }
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Keyboard Space, 2.4 keys' glyphs wide. Tinted at draw time. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="57.6dp"
+    android:height="24dp"
+    android:viewportWidth="57.6"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M2.304,8.64 V15.84 H55.296 V8.64"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2.16"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -32,9 +32,12 @@ object CompanionSettings {
 
         class Toggle(key: String, label: String, val default: Boolean, restarts: Boolean = true) : Setting(key, label, restarts)
 
-        /** Whole-number stops. A null stop is Auto: the key is removed and Moonlight picks. */
-        class Steps(key: String, label: String, val stops: List<Int?>, val default: Int?, val unit: String, restarts: Boolean = true) :
-            Setting(key, label, restarts)
+        /**
+         * Whole-number stops. With [auto], a missing key is Auto: Moonlight picks the value, and the
+         * row steps from the value Moonlight would pick.
+         */
+        class Steps(key: String, label: String, val stops: List<Int>, val default: Int?, val unit: String,
+                    restarts: Boolean = true, val auto: Boolean = false) : Setting(key, label, restarts)
     }
 
     data class Category(val id: String, val label: String, val settings: List<Setting>)
@@ -49,29 +52,36 @@ object CompanionSettings {
 
     val resolution = Setting.Choice(RESOLUTION_MODE, "Resolution", resolutions, NATIVE)
     val fps = Setting.Choice(FPS, "Frame rate", listOf("30", "60", "90", "120").map { Option(it, "$it fps") }, "60")
-    val bitrate = Setting.Steps(BITRATE, "Bitrate",
-        listOf(null, 5, 10, 15, 20, 30, 40, 50, 60, 80, 100, 120, 150).map { it?.times(1000) }, null, "Mbps")
+    val bitrate = Setting.Steps(BITRATE, "Bitrate", (1..30).map { it * 5000 }, null, "Mbps", auto = true)
     val codec = Setting.Choice("video_format", "Codec", listOf(
         Option("auto", "Auto"), Option("neverh265", "H.264"), Option("forceh265", "HEVC"), Option("forceav1", "AV1")), "auto")
     val hdr = Setting.Toggle("checkbox_enable_hdr", "HDR", false)
     val pacing = Setting.Choice("frame_pacing", "Frame pacing", listOf(
-        Option("latency", "Lowest latency"), Option("balanced", "Balanced"),
-        Option("cap-fps", "Cap frame rate"), Option("smoothness", "Smoothest")), "latency")
+        Option("latency", "Fastest"), Option("balanced", "Balanced"),
+        Option("cap-fps", "Capped"), Option("smoothness", "Smoothest")), "latency")
     val sops = Setting.Toggle("checkbox_enable_sops", "Optimize game settings", true)
+    val stretch = Setting.Toggle("checkbox_stretch_video", "Fill screen", false)
+    val fullRange = Setting.Toggle("checkbox_full_range", "Full color range", false)
+    val overlay = Setting.Toggle("checkbox_enable_perf_overlay", "Stats on game screen", false)
     val speakers = Setting.Choice("list_audio_config", "Speakers", listOf(
         Option("2", "Stereo"), Option("51", "5.1"), Option("71", "7.1")), "2")
     val hostAudio = Setting.Toggle("checkbox_host_audio", "Play on PC too", false)
     val swapButtons = Setting.Toggle("checkbox_flip_face_buttons", "Swap A/B and X/Y", false)
     val deadzone = Setting.Steps("seekbar_deadzone", "Stick deadzone", (0..20).toList(), 7, "%")
-    val padMouse = Setting.Toggle("checkbox_mouse_emulation", "Hold Start for pad mouse", true)
+    val padMouse = Setting.Toggle("checkbox_mouse_emulation", "Hold Start for stick mouse", true)
+    /** The Thor's controller has no motion sensors; Moonlight then uses the Thor's own. */
+    val motion = Setting.Toggle("checkbox_gamepad_motion_fallback", "Motion controls", false)
+    /** The Thor's controller has no rumble motor; Moonlight then rumbles the Thor itself. */
+    val rumble = Setting.Toggle("checkbox_vibrate_fallback", "Rumble", false)
+    val desktopMouse = Setting.Toggle("checkbox_absolute_mouse_mode", "Desktop mouse mode", false)
     val padSpeed = Setting.Steps(PAD_SPEED, "Pointer speed", (5..20).map { it * 10 }, 100, "%", restarts = false)
     val naturalScroll = Setting.Toggle(NATURAL_SCROLL, "Natural scrolling", true, restarts = false)
 
     val categories = listOf(
-        Category("video", "Video", listOf(resolution, fps, bitrate, codec, hdr, pacing, sops)),
+        Category("video", "Video", listOf(resolution, fps, bitrate, codec, hdr, pacing, stretch, fullRange, overlay, sops)),
         Category("audio", "Audio", listOf(speakers, hostAudio)),
-        Category("controls", "Controls", listOf(swapButtons, deadzone, padMouse)),
-        Category("trackpad", "Trackpad", listOf(padSpeed, naturalScroll)),
+        Category("controls", "Controls", listOf(swapButtons, deadzone, padMouse, motion, rumble)),
+        Category("trackpad", "Trackpad", listOf(padSpeed, naturalScroll, desktopMouse)),
     )
 
     private val restartSettings = categories.flatMap { it.settings }.filter { it.restarts }
@@ -84,7 +94,7 @@ object CompanionSettings {
     /** The stop the stored value sits on, rounded to the nearest; null is Auto. */
     fun steps(store: Store, setting: Setting.Steps): Int? {
         val stored = store.integer(setting.key) ?: return setting.default
-        return setting.stops.filterNotNull().minByOrNull { kotlin.math.abs(it - stored) }
+        return setting.stops.minByOrNull { kotlin.math.abs(it - stored) }
     }
 
     /**
@@ -118,17 +128,39 @@ object CompanionSettings {
 
     fun setToggle(store: Store, setting: Setting.Toggle, on: Boolean) = store.put(setting.key, on)
 
-    /** One step through a choice's options, wrapping; [by] is -1 or 1. */
+    /** One step through a choice's options, wrapping, as A steps it. [by] is -1 or 1. */
     fun stepChoice(setting: Setting.Choice, current: String, by: Int): String {
         val index = setting.options.indexOfFirst { it.value == current }.coerceAtLeast(0)
         return setting.options[Math.floorMod(index + by, setting.options.size)].value
     }
 
-    /** One stop along; null when already at the end, so the row can refuse instead of wrapping. */
-    fun stepSteps(setting: Setting.Steps, current: Int?, by: Int): Pair<Boolean, Int?> {
-        val index = setting.stops.indexOf(current).let { if (it < 0) setting.stops.indexOf(setting.default).coerceAtLeast(0) else it }
-        val next = index + by
-        return if (next !in setting.stops.indices) false to current else true to setting.stops[next]
+    /** One step left or right, stopping at either end: null there, so the D-pad can move on instead. */
+    fun stepChoiceBounded(setting: Setting.Choice, current: String, by: Int): String? {
+        val index = setting.options.indexOfFirst { it.value == current }.coerceAtLeast(0)
+        return setting.options.getOrNull(index + by)?.value
+    }
+
+    /** Whether a choice can step further toward [by], for the chevron on that side. */
+    fun canStep(setting: Setting.Choice, current: String, by: Int): Boolean = stepChoiceBounded(setting, current, by) != null
+
+    /**
+     * One stop along from where the row reads: the stored stop, or on Auto the value Moonlight
+     * would pick ([effective]), so Auto at 20 Mbps steps to 25 or 15. False at either end.
+     */
+    fun stepSteps(setting: Setting.Steps, current: Int?, by: Int, effective: Int? = null): Pair<Boolean, Int?> {
+        val base = current ?: effective ?: setting.default ?: setting.stops.first()
+        val next = if (by > 0) setting.stops.firstOrNull { it > base } else setting.stops.lastOrNull { it < base }
+        return if (next == null) false to current else true to next
+    }
+
+    /** Where the slider's thumb sits, 0 to 1: the stored stop, or the value Auto stands for. */
+    fun fraction(setting: Setting.Steps, current: Int?, effective: Int? = null): Float {
+        val value = (current ?: effective ?: setting.default ?: setting.stops.first()).toFloat()
+        val first = setting.stops.first().toFloat()
+        val last = setting.stops.last().toFloat()
+        if (last <= first) return 0f
+        // Stops are evenly spaced, so the value's place between the ends is its place on the track.
+        return ((value - first) / (last - first)).coerceIn(0f, 1f)
     }
 
     /** Everything a new stream would read, as text, to tell when the running one is out of date. */
@@ -146,9 +178,9 @@ object CompanionSettings {
         return restartSettings.filter { applied[it.key] != now[it.key] }.map { it.label }
     }
 
-    /** What a Steps value reads as. Auto shows the bitrate Moonlight would pick, when it is known. */
+    /** What a Steps value reads as. Auto leads with the value Moonlight would pick: "20 Mbps · Auto". */
     fun stepsLabel(setting: Setting.Steps, value: Int?, auto: Int? = null): String = when {
-        value == null && auto != null -> "Auto · ${formatSteps(setting, auto)}"
+        value == null && auto != null -> "${formatSteps(setting, auto)} · Auto"
         value == null -> "Auto"
         else -> formatSteps(setting, value)
     }

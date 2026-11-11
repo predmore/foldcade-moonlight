@@ -55,6 +55,9 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     private NvConnection connection;
     private ScheduledExecutorService keepAlive;
     private boolean quitPending, mutedHere, simulatedMouse;
+    /** Moonlight's Desktop mouse mode: the companion's pad moves the PC's cursor as positions too. */
+    private boolean desktopMouse;
+    private int[] screen = { 1920, 1080 };
     private Map<String, String> applied;
     public volatile boolean ended;
     /** A settings change is replacing the stream with a new one; the session and companion stay. */
@@ -120,6 +123,9 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         restarting = false;
         brokerFailure = null;
         applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of(activity));
+        Boolean absolute = PreferenceStore.of(activity).bool(CompanionSettings.INSTANCE.getDesktopMouse().getKey());
+        desktopMouse = absolute != null && absolute;
+        screen = activity.screenSize();
         startKeepAlive();
         if (companion != null) {
             companion.onSessionChanged();
@@ -403,7 +409,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     // ---- Input to the PC ----
 
     boolean key(KeyEvent event) {
-        return !ended && stream != null && stream.onKey(null, event.getKeyCode(), event);
+        return !ended && stream != null && stream.deliverKey(event);
     }
 
     boolean motion(MotionEvent event) {
@@ -415,7 +421,11 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         key(new KeyEvent(KeyEvent.ACTION_DOWN, code));
         key(new KeyEvent(KeyEvent.ACTION_UP, code));
     }
-    void move(short x, short y) { if (!ended && connection != null) connection.sendMouseMove(x, y); }
+    void move(short x, short y) {
+        if (ended || connection == null) return;
+        if (desktopMouse) connection.sendMouseMoveAsMousePosition(x, y, (short) screen[0], (short) screen[1]);
+        else connection.sendMouseMove(x, y);
+    }
     void button(byte button, boolean down) {
         if (!ended && connection != null) {
             if (down) connection.sendMouseButtonDown(button); else connection.sendMouseButtonUp(button);

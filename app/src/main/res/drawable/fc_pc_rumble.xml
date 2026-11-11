@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade Moonlight art in Foldcade's symbol style: one ink, 24-unit grid. Rumble: a controller shaking -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M7,9 H17 A4,4 0 0 1 20.6,14.3 L19.6,16.4 A2,2 0 0 1 16.6,16.9 L15,15 H9 L7.4,16.9 A2,2 0 0 1 4.4,16.4 L3.4,14.3 A4,4 0 0 1 7,9 Z"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M4,4.5 L5.5,6 M20,4.5 L18.5,6 M12,3.5 V5.5"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

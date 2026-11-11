@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Face button X -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M1.4,12A10.6,10.6 0 1 1 22.6,12A10.6,10.6 0 1 1 1.4,12Z"
+        android:fillColor="#FF30333B" />
+    <path
+        android:pathData="M8.818,7.7L15.182,16.3M15.182,7.7L8.818,16.3"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2.1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

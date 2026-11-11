@@ -15,16 +15,25 @@ import android.view.inputmethod.InputConnection;
 final class RemoteKeyboardView extends View {
     private final FoldcadeSession session;
     private final Runnable close;
+    private final PreIme preIme;
 
-    RemoteKeyboardView(Context context, FoldcadeSession session, Runnable close) {
+    /** Sees each key before the IME does, so the ownership key is never taken as "close the keyboard". */
+    interface PreIme { boolean onKey(KeyEvent event); }
+
+    RemoteKeyboardView(Context context, FoldcadeSession session, Runnable close, PreIme preIme) {
         super(context);
         this.session = session;
         this.close = close;
+        this.preIme = preIme;
         setFocusable(true);
         setFocusableInTouchMode(true);
     }
 
     @Override public boolean onCheckIsTextEditor() { return true; }
+
+    @Override public boolean dispatchKeyEventPreIme(KeyEvent event) {
+        return preIme.onKey(event) || super.dispatchKeyEventPreIme(event);
+    }
 
     @Override public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {

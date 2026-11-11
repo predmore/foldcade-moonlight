@@ -35,7 +35,8 @@ public final class FoldcadeStreamActivity extends Game {
     }
 
     @Override protected void configureStreamPreferences(PreferenceConfiguration preferences) {
-        preferences.enablePerfOverlay = false;
+        // The companion shows stats on the bottom screen; Settings › Video › Stats on game screen
+        // adds Moonlight's own overlay on top. Picture-in-picture has no place in a two-screen session.
         preferences.enablePip = false;
         matchStreamDisplay(preferences);
     }
@@ -61,9 +62,32 @@ public final class FoldcadeStreamActivity extends Game {
         }
     }
 
-    // The ownership key and a companion that owns the controller see input before Game does.
+    /** True while delivering a key the session already routed to the game, so it is not routed twice. */
+    private boolean routed;
+
+    // The ownership key and a companion that owns the controller see input before Game does. Keys
+    // reach Game two ways: StreamView hands them over in onKeyPreIme, before the activity sees
+    // them, and anything it leaves comes through dispatchKeyEvent. Both are routed.
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
-        return session != null && session.interceptKey(event) || super.dispatchKeyEvent(event);
+        return !routed && session != null && session.interceptKey(event) || super.dispatchKeyEvent(event);
+    }
+
+    @Override public boolean handleKeyDown(KeyEvent event) {
+        return !routed && session != null && session.interceptKey(event) || super.handleKeyDown(event);
+    }
+
+    @Override public boolean handleKeyUp(KeyEvent event) {
+        return !routed && session != null && session.interceptKey(event) || super.handleKeyUp(event);
+    }
+
+    /** A key the companion received and the session routed to the game. */
+    boolean deliverKey(KeyEvent event) {
+        routed = true;
+        try {
+            return onKey(null, event.getKeyCode(), event);
+        } finally {
+            routed = false;
+        }
     }
 
     @Override public boolean dispatchGenericMotionEvent(MotionEvent event) {
@@ -71,6 +95,12 @@ public final class FoldcadeStreamActivity extends Game {
     }
 
     void releaseGameInput() { releaseControllerInput(); }
+
+    /** The game screen's size in pixels: the reference Desktop mouse mode moves the PC's cursor against. */
+    int[] screenSize() {
+        Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
+        return new int[] { Math.max(mode.getPhysicalWidth(), mode.getPhysicalHeight()), Math.min(mode.getPhysicalWidth(), mode.getPhysicalHeight()) };
+    }
     void setPadMouse(boolean on) { setControllerMouse(on); }
     boolean padMouse() { return isControllerMouseActive(); }
 
@@ -78,7 +108,19 @@ public final class FoldcadeStreamActivity extends Game {
     void showControllerAway(boolean away) {
         if (away && controllerAway == null) {
             controllerAway = new TextView(this);
-            controllerAway.setText(com.limelight.R.string.foldcade_controller_away);
+            // "Controller on bottom screen · [Back] Return": the Thor's Back glyph sits before "Return".
+            String words = getString(com.limelight.R.string.foldcade_controller_away);
+            int at = words.lastIndexOf("Return");
+            android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(words);
+            android.graphics.drawable.Drawable glyph = androidx.core.content.ContextCompat.getDrawable(this, com.limelight.R.drawable.fc_ic_btn_back);
+            if (glyph != null && at >= 0) {
+                int size = Math.round(20 * getResources().getDisplayMetrics().density);
+                glyph.setBounds(0, 0, size, size);
+                text.insert(at, "\u00A0 ");
+                text.setSpan(new android.text.style.ImageSpan(glyph, android.os.Build.VERSION.SDK_INT >= 29 ? 2 /* ALIGN_CENTER */ : android.text.style.DynamicDrawableSpan.ALIGN_BASELINE), at, at + 1,
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            controllerAway.setText(text);
             controllerAway.setTextColor(Color.rgb(0xF4, 0xF1, 0xEA));
             controllerAway.setTextSize(15);
             controllerAway.setTypeface(androidx.core.content.res.ResourcesCompat.getFont(this, com.limelight.R.font.nunito));

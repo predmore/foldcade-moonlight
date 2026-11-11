@@ -74,9 +74,17 @@ internal fun Glyph(@DrawableRes id: Int, size: Dp, tint: Color?, modifier: Modif
 
 /** One hint: a controller button and what it does, as Foldcade's hint row shows it. */
 @Composable
-internal fun Hint(@DrawableRes button: Int, label: String, style: TextStyle = LocalFold.current.hint) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Glyph(button, 22.dp, null)
+internal fun Hint(@DrawableRes button: Int, label: String, style: TextStyle = LocalFold.current.hint) = Hint(listOf(button), label, style)
+
+/** Buttons that share one meaning, as L1 and R1 page, drawn 4dp apart before one label. */
+@Composable
+internal fun Hint(buttons: List<Int>, label: String, style: TextStyle = LocalFold.current.hint) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        buttons.forEachIndexed { index, button ->
+            if (index > 0) Spacer(Modifier.width(4.dp))
+            Glyph(button, 22.dp, null)
+        }
+        Spacer(Modifier.width(6.dp))
         BasicText(label, style = style, maxLines = 1)
     }
 }
@@ -138,6 +146,8 @@ internal fun Modifier.shakeOnRefuse(nav: NavHost, id: String): Modifier {
 private fun Modifier.glass(fold: Fold, corner: Dp, lit: () -> Float): Modifier = drawBehind {
     val radius = CornerRadius(corner.toPx())
     val l = lit()
+    // Opaque underneath, so the backdrop's ribbons never cut through a key.
+    drawRoundRect(fold.background, cornerRadius = radius)
     drawRoundRect(Brush.verticalGradient(listOf(fold.ink.copy(alpha = 0.10f + 0.12f * l), fold.ink.copy(alpha = 0.05f + 0.08f * l))), cornerRadius = radius)
     drawRoundRect(Brush.verticalGradient(listOf(fold.ink.copy(alpha = 0.22f), fold.ink.copy(alpha = 0.04f)), endY = size.height * 0.6f),
         cornerRadius = radius, style = Stroke(1.dp.toPx()))
@@ -248,6 +258,8 @@ internal fun QuickTile(
     val press by rememberUpdatedState(onPress)
     val lit by eased(if (on) 1f else 0f, fold.durationSelect)
     val bright by eased(if (focused || pressed) 1f else 0f, fold.durationShort)
+    // On is teal, as Foldcade's symbols say "on": the tile stays a card, its symbol, label and
+    // edge turn teal. The focus colours belong to focus alone.
     Box(
         modifier
             .navTarget(nav, id, 0, hold = hold, activate = onPress)
@@ -257,7 +269,11 @@ internal fun QuickTile(
             .drawBehind {
                 val r = CornerRadius(corner.toPx())
                 drawRoundRect(fold.ink.copy(alpha = fold.quickTileAlpha + (fold.quickTileLitAlpha - fold.quickTileAlpha) * bright), cornerRadius = r)
-                if (lit > 0f) drawRoundRect(fold.ringBrush(size), cornerRadius = r, alpha = lit * 0.9f)
+                if (lit > 0f) {
+                    val edge = 1.5.dp.toPx()
+                    drawRoundRect(fold.on.copy(alpha = 0.4f * lit), Offset(edge / 2f, edge / 2f), Size(size.width - edge, size.height - edge),
+                        CornerRadius(corner.toPx() - edge / 2f), style = Stroke(edge))
+                }
                 if (badge) drawCircle(fold.attention, 4.dp.toPx(), Offset(size.width - 10.dp.toPx(), 10.dp.toPx()))
             }
             .semantics(mergeDescendants = true) {
@@ -270,7 +286,7 @@ internal fun QuickTile(
             },
         contentAlignment = Alignment.Center,
     ) {
-        val ink = lerp(fold.ink, fold.background, lit)
+        val ink = lerp(fold.ink, fold.on, lit)
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Glyph(icon, 26.dp, ink, Modifier.graphicsLayer { alpha = fold.artRestAlpha + (1f - fold.artRestAlpha) * maxOf(bright, lit) })
             BasicText(label, style = fold.small.copy(color = ink, fontSize = 12.sp), maxLines = 1)
@@ -301,26 +317,37 @@ internal fun ToggleSwitch(on: Boolean, focused: Boolean) {
  * ‹ value ›. The chevrons show while the row has focus, since left and right change it then.
  * Tapping a chevron steps the value too. A new value rolls up into place.
  */
+/**
+ * ‹ value ›. Both chevrons always keep their room, so values line up and nothing shifts as the
+ * focus arrives; the › sits in the row's end gutter ([CHEVRON_GUTTER]), so the value itself
+ * ends on the same edge as switches and sliders. A chevron with nowhere further to go fades.
+ */
 @Composable
-internal fun ChoiceValue(value: String, focused: Boolean, controller: Boolean, onStep: (Int) -> Unit, style: TextStyle) {
+internal fun ChoiceValue(value: String, focused: Boolean, controller: Boolean, canLeft: Boolean, canRight: Boolean,
+                         onStep: (Int) -> Unit, style: TextStyle) {
     val fold = LocalFold.current
     // With the controller here, only the focused row shows its chevrons, as Foldcade's menus do.
     // By touch they stay faint on every row, since they are what a finger taps.
-    val arrows by eased(if (focused) 1f else if (controller) 0f else 0.35f)
+    val shown by eased(if (focused) 1f else if (controller) 0f else 0.35f)
+    val leftEnd by eased(if (canLeft) 1f else 0.25f)
+    val rightEnd by eased(if (canRight) 1f else 0.25f)
     val step by rememberUpdatedState(onStep)
-    val arrow = style.copy(color = fold.ink, fontSize = 22.sp)
+    val arrow = style.copy(color = fold.ink, fontSize = 22.sp, textAlign = TextAlign.Center)
     Row(verticalAlignment = Alignment.CenterVertically) {
         BasicText("‹", style = arrow, modifier = Modifier
+            .width(CHEVRON_GUTTER)
             .pointerInput(Unit) { detectTapGestures { step(-1) } }
-            .padding(horizontal = 10.dp)
-            .graphicsLayer { alpha = arrows })
+            .graphicsLayer { alpha = shown * leftEnd })
         RollingText(value, style.copy(color = if (focused) fold.ink else fold.muted, textAlign = TextAlign.End))
         BasicText("›", style = arrow, modifier = Modifier
+            .width(CHEVRON_GUTTER)
             .pointerInput(Unit) { detectTapGestures { step(1) } }
-            .padding(start = 10.dp)
-            .graphicsLayer { alpha = arrows })
+            .graphicsLayer { alpha = shown * rightEnd })
     }
 }
+
+/** The room a row keeps at its end for a choice's ›, so every row's value ends on one edge. */
+internal val CHEVRON_GUTTER = 24.dp
 
 /** Text that rolls up into place when it changes, overshooting a touch, as Foldcade's choices do. */
 @Composable
@@ -391,7 +418,8 @@ internal fun StepTrack(fraction: Float, stops: Int, onStop: (Int) -> Unit, modif
 internal fun RowLabel(text: String, focused: Boolean, modifier: Modifier = Modifier) {
     val fold = LocalFold.current
     val lit by eased(if (focused) 1f else 0f)
-    BasicText(text, style = fold.row, maxLines = 1, overflow = TextOverflow.Ellipsis,
+    // Two lines before a label is cut: the reviewer's copy stays whole on the narrow card.
+    BasicText(text, style = fold.row.copy(fontSize = 17.sp, lineHeight = 20.sp), maxLines = 2, overflow = TextOverflow.Ellipsis,
         modifier = modifier.graphicsLayer { alpha = fold.labelRestAlpha + (1f - fold.labelRestAlpha) * lit })
 }
 
