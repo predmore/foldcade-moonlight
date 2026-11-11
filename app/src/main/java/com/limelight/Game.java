@@ -2268,11 +2268,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
+    /** A subclass's own explanation for a failed start, shown instead of the port advice. Null keeps upstream's. */
+    protected String stageFailureMessage() { return null; }
+
     @Override
     public void stageFailed(final String stage, final int portFlags, final int errorCode) {
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
-        final int portTestResult = MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
+        final String overrideText = stageFailureMessage();
+        final int portTestResult = overrideText != null ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+                MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -2293,7 +2298,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                     String dialogText = getResources().getString(R.string.conn_error_msg) + " " + stage +" (error "+errorCode+")";
 
-                    if (portFlags != 0) {
+                    if (overrideText != null) {
+                        dialogText = overrideText;
+                    } else if (portFlags != 0) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
                                 MoonBridge.stringifyPortFlags(portFlags, "\n");
                     }

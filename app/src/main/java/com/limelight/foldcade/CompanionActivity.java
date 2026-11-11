@@ -144,6 +144,8 @@ public class CompanionActivity extends Activity {
             return true;
         });
         pad.setOnClickListener(view -> { });
+        // Controller keys go to the game, so nothing here takes key focus or draws a focus highlight.
+        pad.setFocusable(false);
 
         LinearLayout buttons = new LinearLayout(this);
         keyboard = button(R.string.foldcade_keyboard, view -> toggleKeyboard());
@@ -185,6 +187,7 @@ public class CompanionActivity extends Activity {
         button.setBackground(new android.graphics.drawable.RippleDrawable(
                 android.content.res.ColorStateList.valueOf(Color.rgb(67, 85, 108)), shape, null));
         button.setOnClickListener(listener);
+        button.setFocusable(false);
         return button;
     }
 

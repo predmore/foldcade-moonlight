@@ -28,6 +28,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     private boolean quitPending;
     public volatile boolean ended;
     public volatile StreamStats stats;
+    /** The user-facing reason the broker refused or failed the last request, if it did. */
+    public volatile String brokerFailure;
 
     private FoldcadeSession(String title, String pcName, int bottomDisplay,
                             ComputerDetails host, BrokerClient broker, boolean simulated) {
@@ -55,7 +57,14 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     @Override public String request(String path, String query) throws java.io.IOException {
         if (ended || broker == null) throw new java.io.IOException("The streaming session has ended.");
-        String body = broker.request(path, query);
+        String body;
+        try {
+            body = broker.request(path, query);
+        } catch (PluginProtocol.BrokerException e) {
+            // Upstream reports any start failure as a port problem; keep the broker's reason for the dialog.
+            brokerFailure = e.getMessage();
+            throw e;
+        }
         if (ended) throw new java.io.IOException("The streaming session has ended.");
         return body;
     }
