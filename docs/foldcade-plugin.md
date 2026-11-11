@@ -38,14 +38,14 @@ The bottom screen is a Jetpack Compose UI in `com.limelight.foldcade` (Kotlin an
 Landscape puts a rail of quick tiles beside the keys and pad. Portrait (1080×1240) lays the tiles in a row under the pad, and turns Settings' categories into tabs across the top.
 
 - **Header:** the game, the PC, and a stats pill. The pill's dot is teal, amber or rose, judged on loss, ping and decode time against the frame budget. Frame rate does not colour it: a host sends only changed frames, so a still desktop runs slow. When the dot is amber or rose, the pill names the cause, for example "21 fps · 6% loss" (`StreamHealth`). A on the pill, or a tap, swaps the title for decode time, loss, and resolution/codec.
-- **PC keys:** Esc, Win, Alt+Tab, Overlay (Win+G, the PC's game overlay), Alt+F4, Ctrl+Alt+Del and Type. Keys are opaque glass, so the backdrop never cuts through them. Alt+F4 and Ctrl+Alt+Del carry a small rose ring and need a hold: touch-and-hold, or hold A until the key fills. A short press shakes the key and shows "Hold to send" once. `PcShortcut` builds the strokes.
-- **Trackpad:** a glass pad with a dot grid, a light under each finger, a wheel-like scroll strip on the right, and Click and Right-click buttons, each marked with a mouse whose matching half is lit. Fingertip glyphs show Click (one dot), Right-click (two), Scroll (two and an up-down arrow) and Drag (a double-tap mark). Each one fades only after its own gesture is used: `TouchpadGesture` reports each gesture as it happens, and the set of learned gestures is kept between sessions. The pad is also a D-pad target: Down from the keys lands on it, and A toggles the stick mouse. All gesture logic is in `TouchpadGesture`.
-- **Rail:** Mute, Stick mouse, Settings and End.
+- **PC keys:** Esc, Win, Alt+Tab, Overlay (Win+G, the PC's game overlay), Alt+F4, Ctrl+Alt+Del and Type. Keys are opaque glass, so the backdrop never cuts through them. Alt+F4 and Ctrl+Alt+Del carry a small rose ring and need a hold: touch-and-hold, or hold A until the key fills. A short press shakes the key and shows "Hold to send" once. An accessibility service's activation asks first ("Send Alt+F4?") instead of sending, and a disabled key refuses it. A key pulses as its stroke goes out. `PcShortcut` builds the strokes.
+- **Trackpad:** a glass pad with a dot grid, a light under each finger, a wheel-like scroll strip on the right, and Click and Right-click buttons, each marked with a mouse whose matching half is lit. Fingertip glyphs show Click (one dot), Right-click (two), Scroll (two and an up-down arrow) and Drag (a double-tap mark). Each one fades only after its own gesture is used, and the rest slide together as it goes: `TouchpadGesture` reports each gesture as it happens, and the set of learned gestures is kept between sessions. The pad is also a D-pad target: Down from the keys lands on it, and A toggles the stick mouse. All gesture logic is in `TouchpadGesture`.
+- **Rail:** Mute, Stick mouse, Settings and End, on opaque tiles. Mute's icon cross-fades between Muted and Sound.
   - Mute is this device's media volume; unmuting at volume 0 raises it to a quarter, and a mute the companion set is undone when the session ends.
-  - Stick mouse is Moonlight's controller mouse emulation. Turning it on with the controller hands the controller back to the game, since only the game's controller moves the pointer, and the game's screen then shows "Stick mouse on · Hold Start to stop". Turning it off leaves the controller where it is.
+  - Stick mouse is Moonlight's controller mouse emulation. Turning it on with the controller hands the controller back to the game, since only the game's controller moves the pointer, and the game's screen and the companion's footer then show "Stick mouse · Hold Start to stop". A tap turns it on or off and leaves the controller where it is, as does turning it off. On the pad, A reads "Stick mouse off" while it is on.
   - On is teal: the tile keeps its card, and its symbol, label and a 1.5dp edge turn teal. The focus colours mean focus, and fill only the Apply pill.
   - Settings shows an amber dot while a change waits for a restart.
-- **Messages** are in Foldcade's dialog style, each button wearing its controller button. A Quit the PC refused shows "Game didn't quit · Your PC kept it running." with [B Disconnect] and [A Try again]. A settings restart that cannot open the new stream shows "Couldn't restart the stream", and the session ends when it is dismissed. After a message, focus returns to the End sheet's Quit, the deck's End tile, or Esc.
+- **Messages** are in Foldcade's dialog style, each button wearing its controller button. A Quit the PC refused shows "Game didn't quit · Your PC kept it running." with [B Disconnect] and [A Try again]. A settings restart that cannot open the new stream shows "Couldn't restart the stream", and the session ends when it is dismissed. A Try again that fails at once shakes the card and reads "Still running. Try again or disconnect." The sheet under a message fades and drops its hints. After a message, focus returns to the End sheet's Quit, the deck's End tile, or Esc.
 - **End** opens two cards. **Disconnect** (an exit arrow, teal) leaves the game running and is focused first. **Quit game** (Foldcade's power verb, rose) needs a hold. The deck's End tile wears the same exit arrow, so the power mark belongs only to Quit.
 
 ### Typing
@@ -55,7 +55,7 @@ Landscape puts a rail of quick tiles beside the keys and pad. Portrait (1080×12
   - **Chips:** Esc · Tab · Ctrl · Alt · ← ↑ ↓ → · F1–F12. Ctrl and Alt latch for the next key and light while latched; with one latched, a letter goes out as its key (Ctrl+A, not "a"). F1–F12 swaps the number row for F-keys until it is pressed again.
   - **Keys:** each mark appears once, and Shift gives its partner as a PC keyboard does. The keyboard includes `` ` `` and `~` for game consoles, and `\` and `|` beside Space.
   - **Echo:** a faint echo of what was typed sits above the keys, with latched modifiers after it ("Ctrl +"). It stays on the bottom screen, starts over after a shortcut, and is cleared when the keyboard closes.
-  - **No taps:** the keys take no taps. At twelve across, a key is about 40dp, short of a finger's 48dp, and twelve 48dp keys would not fit either orientation. "Touch keys" switches to Android's keyboard and hands the controller back.
+  - **Taps:** a tap types the key and moves focus there. At twelve across a key is about 40dp, short of a finger's 48dp, so "Touch keys" is still there: it switches to Android's keyboard and hands the controller back. Small chips such as Touch keys get a 48dp touch area around the visible pill.
 - **Switching:** taking the controller while Android's keyboard is up swaps it for the controller keyboard. The Thor's Back reaches the handover through `RemoteKeyboardView.dispatchKeyEventPreIme`, so the IME never takes it as "close". B closes the keyboard and keeps the controller. Handing the controller back closes the controller keyboard.
 
 ### Who has the controller
@@ -67,9 +67,10 @@ While the companion owns it:
 - The screen's edge wears the focus ring's light, the focused control has the ring, and the footer shows an amber "Game input paused" chip with hints.
 - The game's screen shows "Controller on bottom screen · [Back] Return".
 - The D-pad (keys or hat) and the left stick move focus, with repeat. A selects, or holds for the hold keys. B goes back a level, and on the deck returns the controller. L1 and R1 page through Settings. Start opens and closes Settings. Back returns the controller from anywhere.
-- Nothing reaches the PC. Taking the controller first releases every button, stick and trigger on the PC (`ControllerHandler.releaseAllInput`).
+- Nothing reaches the PC. Taking the controller first releases everything the game was holding: keyboard keys and modifiers through the stream's own key path, then every button, stick, trigger and the gyro (`ControllerHandler.setInputSuspended`). The suspended handler sends nothing, so sensors, USB controllers and the stick mouse stay quiet until the controller returns. A key held through the handover has its repeats and its eventual physical release swallowed, so nothing presses it again on the PC.
+- Physical controller keys reach the companion before Android's keyboard; the keyboard's own keys still go to it.
 
-`ControllerRouter` (unit tested) decides each key's side. A key always comes up on the side it went down on, and the ownership key itself reaches neither side.
+`ControllerRouter` (unit tested) decides each key's side. A key always comes up on the side it went down on, and the ownership key itself reaches neither side. Only an attached companion can take the controller; with none (one screen), Back and Ctrl+Alt+Shift+M are ordinary keys for the game.
 
 Keys reach the stream two ways. Moonlight's `StreamView` hands them to `Game.handleKeyDown` in `onKeyPreIme`, before the activity sees them, and anything it leaves comes through `dispatchKeyEvent`. `FoldcadeStreamActivity` routes both. The companion's window keeps a focused 1×1 view that takes keys in `dispatchKeyEventPreIme`, because Android otherwise eats the first D-pad press after a touch to leave touch mode.
 
@@ -117,6 +118,8 @@ Controller behaviour:
 
 When a setting a new stream reads differs from what the running stream started with, an **Apply · restart stream** pill rises in the card. Apply disconnects, leaving the game running on the PC, and opens a fresh stream activity for the same session. Its `serverinfo` finds the game running and resumes it with the same launch token. The companion stays up, and the controller goes back to the game.
 
+Each stream activity talks to the broker through a transport bound to a generation (`StreamGate`, unit tested). A restart or a Quit advances it, so a replaced stream whose startup is still running can never send `launch` or `resume`; it gets an error, and the log says "Refused resume from replaced stream N". A request already on its way is waited for before the replacement opens or the quit goes out. A Quit during a restart cancels it: no replacement opens.
+
 ## Token renewal and appearance
 
 - Every `gamestream.request` carries `token`, not only `launch` and `resume`. While a session lasts, the plugin sends `serverinfo` every 2 minutes, so Foldcade's sliding expiry keeps the token valid for a later resume (contract §3, amended).
@@ -126,13 +129,13 @@ When a setting a new stream reads differs from what the running stream started w
 
 Kept small and additive:
 
-- `Game`: `prepareStream`, `configureStreamPreferences`, `getRequestTransport`, `onConnectionCreated`, `stageFailureMessage`, plus `releaseControllerInput`, `setControllerMouse` and `isControllerMouseActive`.
-- `ControllerHandler`: `releaseAllInput`, `setMouseEmulation` and `isMouseEmulationActive`.
+- `Game`: `prepareStream`, `configureStreamPreferences`, `getRequestTransport`, `onConnectionCreated`, `stageFailureMessage`, plus `releaseControllerInput`, `suspendControllerInput`, `setControllerMouse` and `isControllerMouseActive`.
+- `ControllerHandler`: `releaseAllInput`, `setInputSuspended`, `setMouseEmulation` and `isMouseEmulationActive`. Turning mouse emulation off releases a mouse button it holds.
 - `FoldcadeStreamActivity` overrides `Game.handleKeyDown` and `handleKeyUp`, which `StreamView` calls before the activity's own key dispatch, so routing sees every key.
 - `NvConnection` and `NvHTTP`: the per-connection request transport.
 - `app/build.gradle`: the Compose compiler plugin and Compose dependencies. `minSdk` is 23, because current AndroidX and Compose require it. Foldcade mode itself needs Android 8.
 
-A play request Foldcade Moonlight cannot start shows "Can't start the stream" in the same style on the screen it launched on, closed with A, B, Back or a tap (`ui/StartError.kt`). When the bottom screen is unavailable, the game's screen shows "Bottom screen unavailable · Playing on one screen" for a few seconds.
+A play request Foldcade Moonlight cannot start shows "Can't start the stream" in the same style on the screen it launched on, closed with A, B, Back or a tap (`ui/StartError.kt`). When the bottom screen is unavailable, the game's screen shows "Bottom screen unavailable · Playing on one screen" for a few seconds. On one screen, Back opens an **End session** panel over the stream in the companion's style (`ui/StreamEndPanel.kt`): Disconnect is focused and takes A or a tap; Quit game takes a hold of A or a finger; B, Back or a tap outside closes it. The game gets neutral input while it is up.
 
 Any session finish closes both activities, except a settings restart, which replaces only the stream activity. Host/network errors retain Moonlight's error message, then close both on dismissal.
 
@@ -144,7 +147,7 @@ Use the SDK/JDK requirements in the [README](../README.md#building):
 ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing, PC shortcut strokes, D-pad focus geometry, `NavHost` traps and pending focus, the controller keyboard's layout, bindings, sticky modifiers, F-key layer and echo, rows leaving to their own category, per-gesture hint tracking, bitrate stepping, settings keys and pending-restart detection, stream health, and appearance parsing.
+JVM tests exercise typed play extras, protocol reply/error validation, HTTP response and query limits, touchpad click/scroll/drag/strip/speed behaviour, controller routing and handover release, the stream generation gate and its drain, PC shortcut strokes, D-pad focus geometry, `NavHost` traps and pending focus, the controller keyboard's layout, bindings, sticky modifiers, F-key layer and echo, rows leaving to their own category, per-gesture hint tracking, bitrate stepping, settings keys and pending-restart detection, stream health, and appearance parsing.
 
 For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or reinstall Foldcade or official Moonlight. Read displays with `adb shell dumpsys display`, then launch the debug-only companion on the bottom display:
 
@@ -152,11 +155,13 @@ For device QA, install **only** `app.foldcade.moonlight.debug`; do not clear or 
 adb install -r app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
 adb shell am start --display <bottom-display-id> \
   -n app.foldcade.moonlight.debug/com.limelight.foldcade.CompanionPreviewActivity \
-  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|typing-owned|detail|message|quit-fail|restart|restart-fail|fresh] \
+  [--es fc_state owned|end|end-owned|settings|settings-owned|typing|typing-owned|detail|message|confirm|quit-fail|restart|restart-fail|fresh] \
   [--es fc_category video|audio|controls|trackpad]
 ```
 
 The preview has a fake session and simulated 1080p HEVC stats. It exercises layout, every screen and state, gestures, IME, holds, a simulated restart, and cleanup without any paired PC. Its exported activity and class exist only in the debug source set. Disconnect or hold Quit to end the preview.
+
+Two more debug-only entry points: `StreamEndPreviewActivity` shows the single-screen End panel over a blank stand-in (`am start --display 0 -n app.foldcade.moonlight.debug/com.limelight.foldcade.StreamEndPreviewActivity`), logging choices instead of acting. `StreamRaceReceiver` drives the restart races on a real session, faster than a hand can: `am broadcast -n app.foldcade.moonlight.debug/com.limelight.foldcade.StreamRaceReceiver --es race restart-twice [--ei delay 45]` restarts again while the replacement is still starting, and `--es race restart-then-quit` quits while the old stream is stopping. The second ends the game on the PC.
 
 To drive it with the Thor's own controller, write real events to its input device. `adb shell input keyevent` sends virtual-device keys, which Moonlight and the ownership check treat differently:
 
