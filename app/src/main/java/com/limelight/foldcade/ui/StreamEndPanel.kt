@@ -47,6 +47,9 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -158,7 +161,7 @@ class StreamEndPanel private constructor(
             val shape = RoundedCornerShape(fold.cardCorner)
             Column(
                 Modifier
-                    .widthIn(max = 520.dp)
+                    .widthIn(max = 640.dp)
                     .padding(24.dp)
                     .rise(fold) { shown }
                     .clip(shape)
@@ -201,7 +204,7 @@ class StreamEndPanel private constructor(
         Box(
             modifier
                 .heightIn(min = 64.dp)
-                .widthIn(min = 180.dp)
+                .widthIn(min = 264.dp)
                 .focusRing(focused, corner, pronounced = true)
                 .drawWithContent {
                     val r = CornerRadius(corner.toPx())
@@ -233,7 +236,14 @@ class StreamEndPanel private constructor(
                 Gap(width = 12.dp)
                 Column {
                     BasicText(label, style = fold.row.copy(fontWeight = fold.strong))
-                    if (hold) BasicText("Hold", style = fold.small.copy(color = accent, fontSize = 12.sp))
+                    // What each does, as on the companion's End cards; Quit's hold in its rose.
+                    BasicText(
+                        buildAnnotatedString {
+                            append(if (hold) "Closes it on the PC · " else "Game keeps running")
+                            if (hold) withStyle(SpanStyle(color = accent, fontWeight = fold.strong)) { append("Hold") }
+                        },
+                        style = fold.small.copy(fontSize = 13.sp), maxLines = 1,
+                    )
                 }
             }
         }

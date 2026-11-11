@@ -111,6 +111,32 @@ class PcKeyboardTest {
         assertEquals(PcKeyboard.ECHO, long.echo.length)
     }
 
+    @Test fun aSentShortcutIsNamedForTheEchoButPlainKeysAreNot() {
+        val a = PcKeyboard.find(PcKeyboard.Cap.Glyph('a'))
+        var s = PcKeyboard.State().press(a).first
+        assertEquals(0, s.sentCount)
+        s = s.press(chip(PcKeyboard.Chip.Ctrl)).first.press(a).first
+        assertEquals("Ctrl+A", s.sent)
+        assertEquals(1, s.sentCount)
+        assertEquals("", s.echo)
+        // A plain key leaves the last shortcut's name alone, and a second shortcut counts again.
+        s = s.press(chip(PcKeyboard.Chip.Esc)).first
+        assertEquals(1, s.sentCount)
+        s = s.press(chip(PcKeyboard.Chip.Ctrl)).first.press(chip(PcKeyboard.Chip.Alt)).first.press(chip(PcKeyboard.Chip.Left)).first
+        assertEquals("Ctrl+Alt+←", s.sent)
+        assertEquals(2, s.sentCount)
+    }
+
+    @Test fun strokesReadAsPcShortcuts() {
+        val ctrl = PcShortcut.CTRL.toInt(); val alt = PcShortcut.ALT.toInt(); val shift = PcShortcut.SHIFT.toInt()
+        assertEquals("Ctrl+Shift+T", PcKeyboard.strokeLabel('T'.code, ctrl or shift))
+        assertEquals("Alt+F4", PcKeyboard.strokeLabel(PcKeyboard.VK_F1 + 3, alt))
+        assertEquals("Ctrl+Space", PcKeyboard.strokeLabel(PcKeyboard.VK_SPACE, ctrl))
+        assertEquals("Ctrl+/", PcKeyboard.strokeLabel(0xBF, ctrl))
+        assertEquals("Ctrl+Backspace", PcKeyboard.strokeLabel(PcKeyboard.VK_BACK, ctrl))
+        assertEquals("Ctrl+1", PcKeyboard.strokeLabel('1'.code, ctrl))
+    }
+
     @Test fun theFKeyChipSwapsTheNumberRowForF1ToF12() {
         val s = PcKeyboard.State().press(chip(PcKeyboard.Chip.FKeys)).first
         assertTrue(s.fKeys)

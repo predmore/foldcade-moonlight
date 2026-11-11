@@ -41,6 +41,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         void onNavKey(KeyEvent event);
         void onNavMotion(MotionEvent event);
         void onSessionChanged();
+        /** The player used the ownership key (the Thor's Back, or Ctrl+Alt+Shift+M). */
+        void onSwitchUsed();
     }
 
     private static FoldcadeSession active;
@@ -79,6 +81,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
     /** A settings change is replacing the stream with a new one; the session and companion stay. */
     public volatile boolean restarting;
     public volatile StreamStats stats;
+    /** When a settings restart last brought a new stream up (uptime ms), so the companion can say what it wears. */
+    public volatile long restartedAt;
     /** The user-facing reason the broker refused or failed the last request, if it did. */
     public volatile String brokerFailure;
 
@@ -161,6 +165,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         this.connection = connection;
         boolean replaced = restarting;
         restarting = false;
+        if (replaced) restartedAt = android.os.SystemClock.uptimeMillis();
         streamStarted = false;
         brokerFailure = null;
         applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of(activity));
@@ -262,10 +267,13 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         if (simulated) {
             restarting = true;
             stats = null;
+            // As a real restart does: the new stream starts with the game holding the controller.
+            setCompanionOwnsInput(false);
             notifyCompanion();
             main.postDelayed(() -> {
                 if (ended) return;
                 restarting = false;
+                restartedAt = android.os.SystemClock.uptimeMillis();
                 if (companion != null) applied = CompanionSettings.INSTANCE.restartSnapshot(PreferenceStore.of((Context) companion));
                 notifyCompanion();
             }, 1600);
@@ -370,6 +378,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
         }
         switch (route) {
             case TOGGLE:
+                if (companion != null) companion.onSwitchUsed();
                 setCompanionOwnsInput(!router.companionOwns());
                 return true;
             case DROP:

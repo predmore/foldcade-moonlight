@@ -75,11 +75,16 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
         val reach = 14.dp
         val tall = CHIP_HEIGHT + CHIP_GAP + PcKeyboard.rows.size * ROW_PITCH - KEY_GAP
         val unit = minOf((maxWidth - reach * 2) / PcKeyboard.WIDTH, (maxHeight - reach * 2) / tall).coerceAtLeast(0.dp)
+        // Height to spare makes the key rows taller, by up to a third, rather than leaving it empty
+        // above and below them. The chips, widths, gaps across and lettering keep [unit].
+        val rowsTall = tall - CHIP_HEIGHT
+        val unitY = minOf(unit * 1.35f, (maxHeight - reach * 2 - unit * CHIP_HEIGHT) / rowsTall).coerceAtLeast(unit)
         val blockWidth = unit * PcKeyboard.WIDTH
         val left = (maxWidth - blockWidth) / 2
-        val top = ((maxHeight - unit * tall) / 2).coerceAtLeast(0.dp)
-        val keysTop = top + unit * (CHIP_HEIGHT + CHIP_GAP)
+        val top = ((maxHeight - unit * CHIP_HEIGHT - unitY * rowsTall) / 2).coerceAtLeast(0.dp)
+        val keysTop = top + unit * CHIP_HEIGHT + unitY * CHIP_GAP
         val unitPx = with(density) { unit.toPx() }
+        val unitYPx = with(density) { unitY.toPx() }
         val leftPx = with(density) { left.toPx() }
         val topPx = with(density) { top.toPx() }
         val keysTopPx = with(density) { keysTop.toPx() }
@@ -90,7 +95,7 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
 
         val rows = PcKeyboard.rows(state.fKeys)
         val target = if (state.focus.onChips) chipRect(state.focus.index).grown(fold.scaleFocus)
-        else PcKeyboard.key(state.focus, state.fKeys)?.let { keyRect(it, state.focus.row, unitPx, leftPx, keysTopPx).grown(fold.scaleFocus) }
+        else PcKeyboard.key(state.focus, state.fKeys)?.let { keyRect(it, state.focus.row, unitPx, unitYPx, leftPx, keysTopPx).grown(fold.scaleFocus) }
         val highlight = rememberGliding(target)
         Box(
             Modifier.fillMaxSize().drawWithContent {
@@ -137,7 +142,7 @@ internal fun PcKeyboardView(state: PcKeyboard.State, onTap: (PcKeyboard.Focus) -
             rows.forEachIndexed { row, keys ->
                 keys.forEachIndexed { index, placed ->
                     val at = PcKeyboard.Focus(row, index, placed.center)
-                    val rect = keyRect(placed, row, unitPx, leftPx, keysTopPx)
+                    val rect = keyRect(placed, row, unitPx, unitYPx, leftPx, keysTopPx)
                     val focused = !state.focus.onChips && state.focus.row == row && state.focus.index == index
                     Key(placed, state, focused, state.pressedKey?.let { it.row == at.row && it.index == at.index } == true, { flash.value }, { caps }, unit,
                         Modifier
@@ -224,9 +229,9 @@ private fun KeyArt(art: Int, button: Int, size: Dp, artWidth: Float = 1f) {
     }
 }
 
-private fun keyRect(key: PcKeyboard.Placed, row: Int, unit: Float, left: Float, top: Float): Rect {
+private fun keyRect(key: PcKeyboard.Placed, row: Int, unit: Float, unitY: Float, left: Float, top: Float): Rect {
     val gap = unit * KEY_GAP
-    return Rect(Offset(left + key.x * unit + gap / 2f, top + row * unit * ROW_PITCH), Size(key.width * unit - gap, unit * (ROW_PITCH - KEY_GAP)))
+    return Rect(Offset(left + key.x * unit + gap / 2f, top + row * unitY * ROW_PITCH), Size(key.width * unit - gap, unitY * (ROW_PITCH - KEY_GAP)))
 }
 
 private fun Rect.grown(by: Float): Rect {

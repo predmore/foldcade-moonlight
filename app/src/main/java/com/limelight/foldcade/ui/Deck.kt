@@ -82,6 +82,10 @@ internal class CompanionUi(val title: String, val pcName: String) {
     /** The controller keyboard while the companion has the controller; null types with Android's keyboard. */
     var keyboard by mutableStateOf<PcKeyboard.State?>(null)
     var statsDetail by mutableStateOf(false)
+    /** The new stream's settings, briefly after a restart: "1080p60 · 25 Mbps". */
+    var applied by mutableStateOf<String?>(null)
+    /** The player has used Back to move the controller, so the deck stops offering the hint. */
+    var switchLearned by mutableStateOf(true)
     var message by mutableStateOf<Message?>(null)
     /** The trackpad gestures the player has used; each retires its own hint. */
     var learned by mutableStateOf<Set<TouchpadGesture.Gesture>>(emptySet())
@@ -276,6 +280,7 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
         Gap(width = 8.dp)
         val text = when {
             ui.restarting -> "Restarting…"
+            ui.applied != null -> ui.applied!!
             stats == null -> "Connecting…"
             else -> StreamHealth.pillText(stats, ui.targetFps, locale)
         }
@@ -361,12 +366,17 @@ private fun Footer(ui: CompanionUi, nav: NavHost, actions: CompanionActions, mod
     val tipShown by eased(if (tip) 1f else 0f)
     Box(modifier, contentAlignment = Alignment.CenterStart) {
         // The game has the controller: offer it here. Tapping is a deliberate choice too.
-        if (owned < 1f) Row(Modifier.graphicsLayer { alpha = 1f - owned }, verticalAlignment = Alignment.CenterVertically) {
+        if (owned < 1f) Row(Modifier.fillMaxWidth().graphicsLayer { alpha = 1f - owned }, verticalAlignment = Alignment.CenterVertically) {
             TakeController(actions)
             // The stick is the mouse: say so, and how it stops, where the player looks for state.
             if (ui.padMouse) {
                 Gap(width = 12.dp)
                 StickMouseChip()
+            }
+            // Until Back has been used once: the controller moves between the screens with it.
+            else if (!ui.switchLearned) {
+                Spacer(Modifier.weight(1f))
+                SwitchScreensChip()
             }
         }
         if (owned > 0f) Row(
@@ -435,6 +445,20 @@ internal fun TapTarget(onTap: () -> Unit, description: String, modifier: Modifie
     ) { content() }
 }
 
+/** Shown until the player first uses Back: the button that moves the controller between screens. */
+@Composable
+private fun SwitchScreensChip() {
+    val fold = LocalFold.current
+    Row(
+        Modifier
+            .drawBehind { drawRoundRect(fold.ink.copy(alpha = 0.08f), cornerRadius = CornerRadius(size.height / 2f)) }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Hint(R.drawable.fc_ic_btn_back, "Switch screens", fold.hint.copy(color = fold.ink))
+    }
+}
+
 /** Teal, as on is: the stick is the PC's mouse until Start is held. */
 @Composable
 private fun StickMouseChip() {
@@ -474,11 +498,11 @@ private fun PausedChip(modifier: Modifier = Modifier) {
 @Composable
 private fun TouchTyping(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 110.dp).weight(1f, fill = false)) {
+        // The pad takes all the room Android's keyboard leaves, so none of it sits empty above.
+        Box(Modifier.fillMaxWidth().weight(1f).heightIn(min = 64.dp, max = 140.dp)) {
             Pad(ui, nav, actions, Modifier.fillMaxSize(), compact = true)
             val fold = LocalFold.current
-            TapTarget({ actions.takeController(true) }, "Take controller", Modifier.padding(start = 4.dp)) {
+            TapTarget({ actions.takeController(true) }, "Take controller", Modifier.align(Alignment.BottomStart).padding(6.dp)) {
                 Box(Modifier
                     .drawBehind { drawRoundRect(Color.Black.copy(alpha = 0.55f), cornerRadius = CornerRadius(size.height / 2f)) }
                     .padding(horizontal = 10.dp, vertical = 4.dp)) {
@@ -543,8 +567,23 @@ private fun Echo(keyboard: PcKeyboard.State, actions: CompanionActions, modifier
     val fold = LocalFold.current
     // The modifiers waiting for the next key, as a PC shortcut reads: "Ctrl + Alt +".
     val latched = listOfNotNull("Ctrl".takeIf { keyboard.ctrl }, "Alt".takeIf { keyboard.alt })
+    // A shortcut clears the echo, since the PC's field may have changed in ways it cannot follow;
+    // what was sent stands there for a moment instead, so the press visibly went somewhere.
+    var sentShown by remember { mutableStateOf(false) }
+    LaunchedEffect(keyboard.sentCount) {
+        if (keyboard.sentCount == 0) return@LaunchedEffect
+        sentShown = true
+        kotlinx.coroutines.delay(1200)
+        sentShown = false
+    }
+    val sent by eased(if (sentShown && keyboard.echo.isEmpty()) 1f else 0f)
     Row(modifier.padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            if (sent > 0f) {
+                BasicText(keyboard.sent, style = fold.row.copy(color = fold.focus, fontWeight = fold.strong, fontSize = 17.sp), maxLines = 1,
+                    modifier = Modifier.graphicsLayer { alpha = sent }.semantics { contentDescription = "Sent ${keyboard.sent}" })
+                Gap(width = 4.dp)
+            }
             BasicText(keyboard.echo, style = fold.row.copy(color = fold.ink.copy(alpha = 0.55f), fontSize = 17.sp), maxLines = 1,
                 overflow = TextOverflow.Clip)
             Box(Modifier.width(2.dp).height(18.dp).drawBehind { drawRect(fold.ringBrush(size), alpha = 0.8f) })

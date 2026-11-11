@@ -172,7 +172,9 @@ object PcKeyboard {
      * The open keyboard. [ctrl] and [alt] are latched for the next key; [fKeys] has F1–F12 in the
      * number row. [echo] is what was typed while it was open, shown faintly above the keys and
      * never sent anywhere. [pressed] counts presses and [pressedKey] is the key that acted last,
-     * so the board can flash it even when a button did the work, as Foldcade's does.
+     * so the board can flash it even when a button did the work, as Foldcade's does. [sent] names
+     * the last shortcut, as "Ctrl+A", which the echo shows for a moment in place of what it
+     * cleared; [sentCount] tells one sending from the next. Display only.
      */
     data class State(
         val focus: Focus = start,
@@ -183,6 +185,8 @@ object PcKeyboard {
         val echo: String = "",
         val pressed: Int = 0,
         val pressedKey: Focus? = null,
+        val sent: String = "",
+        val sentCount: Int = 0,
     ) {
         /** The modifiers a stroke goes out with now: latched Ctrl and Alt, and Shift while on. */
         val modifiers: Int get() = (if (ctrl) PcShortcut.CTRL.toInt() else 0) or (if (alt) PcShortcut.ALT.toInt() else 0) or
@@ -259,7 +263,8 @@ object PcKeyboard {
                 echoErase -> echo.dropLast(1)
                 else -> echo
             }
-            return copy(ctrl = false, alt = false, shift = if (shift == Shift.Once) Shift.Off else shift, echo = echoed)
+            val shortcut = if (plain) this else copy(sent = strokeLabel(vk, output.modifiers), sentCount = sentCount + 1)
+            return shortcut.copy(ctrl = false, alt = false, shift = if (shift == Shift.Once) Shift.Off else shift, echo = echoed)
                 .pressing(key) to output
         }
 
@@ -274,6 +279,25 @@ object PcKeyboard {
         '-' -> 0xBD; '=' -> 0xBB; '\\' -> 0xDC; ';' -> 0xBA; '\'' -> 0xDE
         ',' -> 0xBC; '.' -> 0xBE; '/' -> 0xBF; '`' -> 0xC0
         else -> null
+    }
+
+    /** A stroke as a PC shortcut reads: "Ctrl+Shift+T", "Alt+F4", "Ctrl+←". */
+    fun strokeLabel(vk: Int, modifiers: Int): String {
+        val names = listOfNotNull(
+            "Ctrl".takeIf { modifiers and PcShortcut.CTRL.toInt() != 0 },
+            "Alt".takeIf { modifiers and PcShortcut.ALT.toInt() != 0 },
+            "Shift".takeIf { modifiers and PcShortcut.SHIFT.toInt() != 0 },
+        )
+        return (names + keyName(vk)).joinToString("+")
+    }
+
+    private fun keyName(vk: Int): String = when (vk) {
+        in 0x30..0x39, in 0x41..0x5A -> vk.toChar().toString()
+        in VK_F1 until VK_F1 + 12 -> "F${vk - VK_F1 + 1}"
+        VK_SPACE -> "Space"; VK_TAB -> "Tab"; VK_ESCAPE -> "Esc"; VK_BACK -> "Backspace"; VK_RETURN -> "Enter"
+        VK_LEFT -> "←"; VK_UP -> "↑"; VK_RIGHT -> "→"; VK_DOWN -> "↓"
+        0xBD -> "-"; 0xBB -> "="; 0xDC -> "\\"; 0xBA -> ";"; 0xDE -> "'"; 0xBC -> ","; 0xBE -> "."; 0xBF -> "/"; 0xC0 -> "`"
+        else -> "Key"
     }
 
     const val VK_BACK = 0x08

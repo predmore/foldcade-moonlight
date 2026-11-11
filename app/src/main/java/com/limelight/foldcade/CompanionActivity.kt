@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.core.content.edit
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.InputDevice
@@ -43,6 +44,9 @@ import kotlin.math.sin
 open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionView, CompanionActions {
     private companion object {
         const val LEARNED = "trackpadGesturesLearned"
+        const val SWITCH_LEARNED = "switchScreensLearned"
+        /** How long the stats pill names the new settings after a restart. */
+        const val APPLIED_MS = 3500L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -103,6 +107,7 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         s.attach(this)
         ui = CompanionUi(s.title, s.pcName)
         ui.learned = learnedGestures()
+        ui.switchLearned = getPreferences(MODE_PRIVATE).getBoolean(SWITCH_LEARNED, false)
         // The window stays focusable. Launching it makes the bottom display the focused one, and a
         // non-focusable window there would leave controller input with no window at all. Every key
         // and controller motion it receives is forwarded to the stream unless the companion owns it.
@@ -174,6 +179,13 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         val s = session ?: return
         ui.stats = s.stats
         ui.restarting = s.restarting
+        val sinceRestart = SystemClock.uptimeMillis() - s.restartedAt
+        ui.applied = if (s.restartedAt > 0 && sinceRestart < APPLIED_MS) CompanionSettings.streamSummary(store, topScreen) else null
+        // Gone on time, not only on the next second's tick.
+        if (ui.applied != null) {
+            handler.removeCallbacks(appliedOver)
+            handler.postDelayed(appliedOver, APPLIED_MS - sinceRestart + 20)
+        }
         ui.quitPending = s.quitPending()
         ui.padMouse = s.padMouse()
         ui.muted = s.isMuted(this)
@@ -197,7 +209,16 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         }
     }
 
+    private val appliedOver = Runnable { refresh() }
+
     override fun onSessionChanged() = refresh()
+
+    /** The first use of Back retires the deck's "Switch screens" hint for good. */
+    override fun onSwitchUsed() {
+        if (ui.switchLearned) return
+        ui.switchLearned = true
+        getPreferences(MODE_PRIVATE).edit { putBoolean(SWITCH_LEARNED, true) }
+    }
 
     // ---- Keys ----
 
@@ -627,7 +648,8 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             "restart" -> s.restartStream()
             "fresh" -> {
                 ui.learned = emptySet()
-                getPreferences(MODE_PRIVATE).edit().remove(LEARNED).apply()
+                ui.switchLearned = false
+                getPreferences(MODE_PRIVATE).edit().remove(LEARNED).remove(SWITCH_LEARNED).apply()
             }
         }
         refresh()

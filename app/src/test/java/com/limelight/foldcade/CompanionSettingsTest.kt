@@ -20,6 +20,17 @@ class CompanionSettingsTest {
     private val store = MapStore()
     private val s = CompanionSettings
 
+    @Test fun theStreamSummaryNamesWhatANewStreamWillWear() {
+        // Native at the top screen's size, 60 fps, Moonlight's own bitrate for those.
+        val auto = s.autoBitrate(store, "1920×1080")!!
+        assertEquals("1080p60 · ${(auto + 500) / 1000} Mbps", s.streamSummary(store, "1920×1080"))
+        store.put("list_fps", "120")
+        store.put("seekbar_bitrate_kbps", 25000)
+        assertEquals("1080p120 · 25 Mbps", s.streamSummary(store, "1920×1080"))
+        s.setChoice(store, s.resolution, "2560x1440")
+        assertEquals("1440p120 · 25 Mbps", s.streamSummary(store, "1920×1080"))
+    }
+
     @Test fun resolutionIsTheTopScreenUntilThePlayerChooses() {
         assertEquals(NATIVE, s.resolutionChoice(store))
         // Moonlight's own first-run default is not a choice.

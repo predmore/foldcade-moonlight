@@ -181,6 +181,26 @@ object CompanionSettings {
         return restartSettings.filter { applied[it.key] != now[it.key] }.map { it.label }
     }
 
+    /** The resolution a new stream will use, as "1920x1080": the top screen's own for Native. */
+    fun streamResolution(store: Store, topScreen: String): String =
+        resolutionChoice(store).let { if (it == NATIVE) topScreen.replace('×', 'x') else it }
+
+    /** What Moonlight would pick for Auto: its default for the resolution and frame rate the stream will use. */
+    fun autoBitrate(store: Store, topScreen: String): Int? = runCatching {
+        com.limelight.preferences.PreferenceConfiguration.getDefaultBitrate(streamResolution(store, topScreen), choice(store, fps))
+    }.getOrNull()
+
+    /**
+     * The stream's settings in a few characters, as the stats pill shows them just after Apply:
+     * "1080p60 · 25 Mbps". Null if the resolution cannot be read.
+     */
+    fun streamSummary(store: Store, topScreen: String): String? {
+        val height = streamResolution(store, topScreen).substringAfter('x', "").toIntOrNull() ?: return null
+        val kbps = steps(store, bitrate) ?: autoBitrate(store, topScreen)
+        val rate = choice(store, fps)
+        return if (kbps == null) "${height}p$rate" else "${height}p$rate · ${(kbps + 500) / 1000} Mbps"
+    }
+
     /** What a Steps value reads as. Auto leads with the value Moonlight would pick: "20 Mbps · Auto". */
     fun stepsLabel(setting: Setting.Steps, value: Int?, auto: Int? = null): String = when {
         value == null && auto != null -> "${formatSteps(setting, auto)} · Auto"

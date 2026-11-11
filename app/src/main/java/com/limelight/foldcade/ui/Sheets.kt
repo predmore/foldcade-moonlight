@@ -78,7 +78,8 @@ internal fun Sheets(ui: CompanionUi, nav: NavHost, actions: CompanionActions) {
             .pointerInput(Unit) { detectTapGestures { if (shown == Sheet.End) actions.closeSheet() } })
         // A message over a sheet: the sheet steps right back, so its words never read through the card.
         val under by eased(if (ui.message != null) 1f else 0f, fold.durationIsland)
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - 0.85f * under }) {
+        // Gone entirely under a message: any trace of the sheet would read as part of the card.
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - under }) {
             when (shown) {
                 Sheet.End -> EndSheet(ui, nav, actions) { open }
                 Sheet.Settings -> SettingsSheet(ui, nav, actions) { open }
@@ -506,7 +507,7 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
         }
         is Setting.Steps -> {
             val value = CompanionSettings.steps(store, setting)
-            val auto = if (setting.auto) autoBitrate(store, actions.topScreen) else null
+            val auto = if (setting.auto) CompanionSettings.autoBitrate(store, actions.topScreen) else null
             val adjust = { by: Int ->
                 val (moved, next) = CompanionSettings.stepSteps(setting, value, by, auto)
                 if (moved) { CompanionSettings.setSteps(store, setting, next); changed() }
@@ -542,13 +543,6 @@ private fun SettingRow(ui: CompanionUi, nav: NavHost, actions: CompanionActions,
             }
         }
     }
-}
-
-/** What Moonlight would pick for Auto: its default for the resolution and frame rate the stream will use. */
-private fun autoBitrate(store: CompanionSettings.Store, topScreen: String): Int? {
-    val res = CompanionSettings.resolutionChoice(store).let { if (it == CompanionSettings.NATIVE) topScreen.replace('×', 'x') else it }
-    val fps = CompanionSettings.choice(store, CompanionSettings.fps)
-    return runCatching { com.limelight.preferences.PreferenceConfiguration.getDefaultBitrate(res, fps) }.getOrNull()
 }
 
 @Composable
@@ -611,8 +605,13 @@ private fun ApplyBar(ui: CompanionUi, nav: NavHost, actions: CompanionActions, e
             Gap(width = 10.dp)
             BasicText("Apply · restart stream", style = fold.row.copy(color = fold.background, fontWeight = fold.strong, fontSize = 17.sp), maxLines = 1)
             Spacer(Modifier.weight(1f))
+            // What changed, on a small dark capsule so it reads against either end of the gradient.
             BasicText(ui.pending.size.let { if (it == 1) ui.pending.first() else "$it changes" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = fold.small.copy(color = fold.background.copy(alpha = 0.7f), fontWeight = fold.strong), modifier = Modifier.widthIn(max = 110.dp))
+                style = fold.small.copy(color = fold.ink, fontWeight = fold.strong),
+                modifier = Modifier
+                    .widthIn(max = 130.dp)
+                    .drawBehind { drawRoundRect(fold.background.copy(alpha = 0.42f), cornerRadius = CornerRadius(size.height / 2f)) }
+                    .padding(horizontal = 10.dp, vertical = 3.dp))
         }
     }
 }
