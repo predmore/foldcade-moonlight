@@ -30,7 +30,7 @@ public final class FoldcadePlayActivity extends Activity {
             if (extras != null) for (String key : extras.keySet()) values.put(key, extras.get(key));
             PluginProtocol.PlayRequest request = new PluginProtocol.PlayRequest(values);
             DisplayManager displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
-            if (displays.getDisplay(request.topDisplay) == null) throw new IllegalArgumentException("The stream display is unavailable.");
+            if (displays.getDisplay(request.topDisplay) == null) throw new IllegalArgumentException("The top screen is not available. Try again from Foldcade.");
             BrokerClient broker = new BrokerClient(this, request.authority, request.hostUuid, request.launchToken);
             new Thread(() -> {
                 try {

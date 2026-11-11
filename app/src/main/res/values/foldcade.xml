@@ -2,7 +2,7 @@
 <resources>
     <string name="foldcade_connecting">Connecting…</string>
     <string name="foldcade_touchpad">PC touchpad</string>
-    <string name="foldcade_touchpad_hint">Move a finger to point\nTap to click · Two fingers to scroll\nTwo-finger tap to right-click\nDouble-tap and hold to drag</string>
+    <string name="foldcade_touchpad_hint">Move a finger to point\nTap to click · Two fingers to scroll\nTwo-finger tap to right-click\nDouble-tap and slide to drag</string>
     <string name="foldcade_keyboard">Keyboard</string>
     <string name="foldcade_hide_keyboard">Hide keyboard</string>
     <string name="foldcade_disconnect">Disconnect</string>

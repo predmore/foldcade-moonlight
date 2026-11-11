@@ -32,7 +32,7 @@ public final class BrokerClient implements NvHTTP.RequestTransport {
         if (provider == null || !provider.exported ||
                 !("app.foldcade".equals(provider.packageName) || "app.foldcade.debug".equals(provider.packageName)) ||
                 !authority.equals(provider.packageName + ".plugins")) {
-            throw new IOException("The play request does not point to a trusted Foldcade broker.");
+            throw new IOException(PluginProtocol.userMessage("not_launched"));
         }
         return provider.packageName;
     }

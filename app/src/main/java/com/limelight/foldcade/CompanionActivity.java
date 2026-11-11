@@ -29,6 +29,7 @@ import com.limelight.nvstream.jni.MoonBridge;
 
 /** Bottom-panel controls. Forwards every key and controller motion it receives to the stream. */
 public class CompanionActivity extends Activity {
+    private static final int DESTRUCTIVE = Color.rgb(242, 184, 181);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FoldcadeSession session;
     private RemoteKeyboardView editor;
@@ -96,8 +97,8 @@ public class CompanionActivity extends Activity {
         LinearLayout.LayoutParams hostParams = new LinearLayout.LayoutParams(-1, -2);
         hostParams.topMargin = dp(4);
         root.addView(host, hostParams);
-        stats = label(getString(R.string.foldcade_connecting), 11, muted);
-        if (android.os.Build.VERSION.SDK_INT >= 26) stats.setAutoSizeTextTypeUniformWithConfiguration(8, 11, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        stats = label(getString(R.string.foldcade_connecting), 12, muted);
+        if (android.os.Build.VERSION.SDK_INT >= 26) stats.setAutoSizeTextTypeUniformWithConfiguration(10, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(-1, dp(32));
         statsParams.topMargin = dp(8);
         stats.setGravity(Gravity.CENTER_VERTICAL);
@@ -148,6 +149,8 @@ public class CompanionActivity extends Activity {
         keyboard = button(R.string.foldcade_keyboard, view -> toggleKeyboard());
         Button disconnect = button(R.string.foldcade_disconnect, view -> session.end());
         Button quit = button(R.string.foldcade_quit, view -> confirmQuit());
+        // Quit closes the game on the PC; it reads as the destructive one of the three.
+        quit.setTextColor(DESTRUCTIVE);
         buttons.addView(keyboard, new LinearLayout.LayoutParams(0, dp(52), 1));
         LinearLayout.LayoutParams middle = new LinearLayout.LayoutParams(0, dp(52), 1);
         middle.setMargins(dp(8), 0, dp(8), 0);
@@ -172,7 +175,7 @@ public class CompanionActivity extends Activity {
     private Button button(int text, View.OnClickListener listener) {
         Button button = new Button(this);
         button.setText(text);
-        button.setTextSize(13);
+        button.setTextSize(15);
         button.setAllCaps(false);
         button.setTextColor(Color.rgb(232, 236, 242));
         button.setPadding(dp(4), 0, dp(4), 0);
@@ -215,7 +218,8 @@ public class CompanionActivity extends Activity {
         keyboardOpen = open;
         showImeOnFocus = open;
         imeWasVisible = false;
-        touchpad.setVisibility(open ? View.GONE : View.VISIBLE);
+        // INVISIBLE keeps the pad's weight, so the buttons stay just above the keyboard.
+        touchpad.setVisibility(open ? View.INVISIBLE : View.VISIBLE);
         stats.setVisibility(open ? View.GONE : View.VISIBLE);
         keyboard.setText(open ? R.string.foldcade_hide_keyboard : R.string.foldcade_keyboard);
         InputMethodManager ime = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -254,6 +258,7 @@ public class CompanionActivity extends Activity {
                 .setMessage(R.string.foldcade_quit_detail)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.foldcade_quit, (d, which) -> session.quitGame()).show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(DESTRUCTIVE);
     }
 
     void showMessage(String title, String message) {

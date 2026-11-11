@@ -27,13 +27,13 @@ public final class PluginProtocol {
     public static String userMessage(String code) {
         switch (code) {
             case "not_granted":
-                return "Turn on sharing for Foldcade Moonlight in Foldcade › Settings › Plugins, then try again.";
-            case "unknown_host": return "This computer is no longer paired in Foldcade. Open Foldcade and check its paired computers.";
+                return "In Foldcade, open Settings › Plugins › Foldcade Moonlight and turn on Share paired computers.";
+            case "unknown_host": return "This computer is no longer paired with Foldcade. Pair it again in Foldcade › Settings › Library.";
             case "unreachable": return "The computer could not be reached. Check that it is awake and connected, then try again.";
             case "host_error": return "The computer could not complete the streaming request. Try again from Foldcade.";
             case "not_launched": return "Start this game from Foldcade.";
             case "bad_request": return "The streaming request was not accepted. Update Foldcade and Foldcade Moonlight, then try again.";
-            default: return "Foldcade's streaming broker is unavailable. Open Foldcade and try again.";
+            default: return "Foldcade Moonlight could not reach Foldcade. Open Foldcade and try again.";
         }
     }
 
@@ -59,12 +59,15 @@ public final class PluginProtocol {
         return (String) body;
     }
 
+    /** Shown for any play intent this version cannot read: a newer or older Foldcade, or a bad sender. */
+    public static final String UNREADABLE = "Foldcade sent a request this version cannot read. Update Foldcade and Foldcade Moonlight, then try again.";
+
     public static final class PlayRequest {
         public final String authority, title, hostUuid, hostName, appName, launchToken;
         public final int topDisplay, bottomDisplay, appId;
 
         public PlayRequest(Map<String, Object> extras) {
-            if (integer(extras, EXTRA + "PROTOCOL") != 1) throw new IllegalArgumentException("Unsupported plugin protocol.");
+            if (integer(extras, EXTRA + "PROTOCOL") != 1) throw new IllegalArgumentException(UNREADABLE);
             authority = string(extras, EXTRA + "BROKER_AUTHORITY");
             title = string(extras, EXTRA + "TITLE");
             launchToken = string(extras, EXTRA + "LAUNCH_TOKEN");
@@ -74,25 +77,25 @@ public final class PluginProtocol {
             topDisplay = integer(extras, EXTRA + "TOP_DISPLAY");
             bottomDisplay = integer(extras, EXTRA + "BOTTOM_DISPLAY");
             String id = string(extras, GAMESTREAM + "APP_ID");
-            if (!id.matches("[0-9]+")) throw new IllegalArgumentException("Invalid GameStream app id.");
+            if (!id.matches("[0-9]+")) throw new IllegalArgumentException(UNREADABLE);
             try { appId = Integer.parseInt(id); }
-            catch (NumberFormatException e) { throw new IllegalArgumentException("Invalid GameStream app id."); }
+            catch (NumberFormatException e) { throw new IllegalArgumentException(UNREADABLE); }
             if (appId <= 0 || topDisplay < 0 || bottomDisplay < -1 || bottomDisplay == topDisplay) {
-                throw new IllegalArgumentException("Invalid app or display selection.");
+                throw new IllegalArgumentException(UNREADABLE);
             }
         }
 
         private static String string(Map<String, Object> extras, String key) {
             Object value = extras.get(key);
             if (!(value instanceof String) || ((String) value).trim().isEmpty()) {
-                throw new IllegalArgumentException("The play request is missing a required field.");
+                throw new IllegalArgumentException(UNREADABLE);
             }
             return (String) value;
         }
 
         private static int integer(Map<String, Object> extras, String key) {
             Object value = extras.get(key);
-            if (!(value instanceof Integer)) throw new IllegalArgumentException("The play request has an invalid numeric field.");
+            if (!(value instanceof Integer)) throw new IllegalArgumentException(UNREADABLE);
             return (Integer) value;
         }
     }

@@ -124,7 +124,7 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
             String failure = null;
             try {
                 NvHTTP http = new NvHTTP(host.activeAddress, host.httpsPort, null, null, null, broker);
-                if (!http.quitApp()) failure = "The computer did not quit the game.";
+                if (!http.quitApp()) failure = "The computer did not close the game. Try again, or disconnect and leave it running.";
             } catch (Exception e) {
                 failure = e instanceof PluginProtocol.BrokerException ? e.getMessage() : "The game could not be quit. You can disconnect and leave it running.";
             }
