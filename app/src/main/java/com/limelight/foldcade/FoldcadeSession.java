@@ -7,6 +7,7 @@ import android.hardware.display.DisplayManager;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -132,7 +133,16 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
      * The transport for a stream being created now. It works until the stream is replaced or the
      * game is quit; after that its requests are refused, so a stopped stream cannot launch.
      */
-    NvHTTP.RequestTransport transport() { return gate.transport(this::request); }
+    /** The current stream generation, for logs and the debug race driver. */
+    int gateGeneration() { return gate.current(); }
+
+    NvHTTP.RequestTransport transport() {
+        final int generation = gate.current();
+        return gate.transport((path, query) -> {
+            Log.d("Foldcade", "Stream generation " + generation + " sends " + path);
+            return request(path, query);
+        });
+    }
 
     static FoldcadeSession find(Intent intent) {
         FoldcadeSession session = active;
@@ -282,7 +292,10 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
 
     private void openReplacementStream() {
         // A Quit while the old stream was stopping cancels the restart: nothing may start the game again.
-        if (ended || quitPending || !restarting) return;
+        if (ended || quitPending || !restarting) {
+            Log.i("Foldcade", "Restart cancelled; no replacement stream opens");
+            return;
+        }
         Context context = companion != null ? (Context) companion : null;
         // Foldcade sessions only exist on Android 8 and later; see FoldcadePlayActivity.
         if (context == null || android.os.Build.VERSION.SDK_INT < 26) { end(); return; }
@@ -311,7 +324,9 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
             // and the controllers, sensors included, go quiet until the controller comes back.
             for (Long id : router.releaseHeldByGame()) {
                 KeyEvent down = heldByGame.remove(id);
-                if (down != null && stream != null) stream.deliverKey(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
+                if (down == null || stream == null) continue;
+                Log.i("Foldcade", "Handover: released " + KeyEvent.keyCodeToString(down.getKeyCode()) + " for the game");
+                stream.deliverKey(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
             }
             heldByGame.clear();
         }
@@ -338,6 +353,8 @@ public final class FoldcadeSession implements NvHTTP.RequestTransport {
                 setCompanionOwnsInput(!router.companionOwns());
                 return true;
             case DROP:
+                if (!ownershipKey) Log.d("Foldcade", "Swallowed " + KeyEvent.keyCodeToString(event.getKeyCode())
+                        + (down ? " repeat " + event.getRepeatCount() : " release") + " after a handover");
                 return true;
             case COMPANION:
                 if (companion != null) companion.onNavKey(event);

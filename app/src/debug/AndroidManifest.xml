@@ -13,5 +13,8 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:theme="@style/FoldcadeCompanionTheme" />
+        <!-- Only adb (the shell holds DUMP) may drive it. -->
+        <receiver android:name=".foldcade.StreamRaceReceiver" android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>
