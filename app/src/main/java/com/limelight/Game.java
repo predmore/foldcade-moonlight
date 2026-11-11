@@ -1077,6 +1077,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void configureStreamPreferences(PreferenceConfiguration preferences) { }
     protected NvHTTP.RequestTransport getRequestTransport() { return null; }
     protected void onConnectionCreated(NvConnection connection) { }
+    /** Releases everything the controllers hold on the PC, for a subclass that takes their input. */
+    protected void releaseControllerInput() {
+        if (controllerHandler != null) controllerHandler.releaseAllInput();
+    }
+    /** Moonlight's controller mouse emulation, which a long Start press also toggles. */
+    protected void setControllerMouse(boolean on) {
+        if (controllerHandler != null) controllerHandler.setMouseEmulation(on);
+    }
+    protected boolean isControllerMouseActive() {
+        return controllerHandler != null && controllerHandler.isMouseEmulationActive();
+    }
 
     @Override
     protected void onPause() {

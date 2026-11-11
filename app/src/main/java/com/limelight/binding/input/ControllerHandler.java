@@ -292,6 +292,80 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         deviceVibrator.cancel();
     }
 
+    // Foldcade companion hooks. The bottom screen can take the controller from the game, and
+    // switch Moonlight's mouse emulation without the long Start press.
+    private boolean mouseEmulationForAll;
+
+    /** Lets go of every button, stick and trigger on the PC, as if the player released them all. */
+    public void releaseAllInput() {
+        if (stopped) {
+            return;
+        }
+        java.util.List<GenericControllerContext> held = new java.util.ArrayList<>();
+        for (int i = 0; i < inputDeviceContexts.size(); i++) {
+            collectHeld(inputDeviceContexts.valueAt(i), held);
+        }
+        for (int i = 0; i < usbDeviceContexts.size(); i++) {
+            collectHeld(usbDeviceContexts.valueAt(i), held);
+        }
+        collectHeld(defaultContext, held);
+        // Every context is clear before any packet goes, so contexts sharing a number fuse to nothing.
+        for (GenericControllerContext context : held) {
+            sendControllerInputPacket(context);
+        }
+    }
+
+    private static void collectHeld(GenericControllerContext context, java.util.List<GenericControllerContext> held) {
+        if (!context.assignedControllerNumber || (context.inputMap == 0 && context.leftTrigger == 0 &&
+                context.rightTrigger == 0 && context.leftStickX == 0 && context.leftStickY == 0 &&
+                context.rightStickX == 0 && context.rightStickY == 0)) {
+            return;
+        }
+        context.inputMap = 0;
+        context.leftTrigger = context.rightTrigger = 0;
+        context.leftStickX = context.leftStickY = context.rightStickX = context.rightStickY = 0;
+        if (context instanceof InputDeviceContext) {
+            ((InputDeviceContext) context).emulatingButtonFlags = 0;
+        }
+        held.add(context);
+    }
+
+    /** Moonlight's mouse emulation on every controller, including ones that connect later. */
+    public void setMouseEmulation(boolean on) {
+        mouseEmulationForAll = on;
+        for (int i = 0; i < inputDeviceContexts.size(); i++) {
+            applyMouseEmulation(inputDeviceContexts.valueAt(i), on);
+        }
+        for (int i = 0; i < usbDeviceContexts.size(); i++) {
+            applyMouseEmulation(usbDeviceContexts.valueAt(i), on);
+        }
+    }
+
+    public boolean isMouseEmulationActive() {
+        // Turned on before any controller sent input: it starts with the first one that does.
+        if (mouseEmulationForAll && inputDeviceContexts.size() == 0 && usbDeviceContexts.size() == 0) {
+            return true;
+        }
+        for (int i = 0; i < inputDeviceContexts.size(); i++) {
+            if (inputDeviceContexts.valueAt(i).mouseEmulationActive) return true;
+        }
+        for (int i = 0; i < usbDeviceContexts.size(); i++) {
+            if (usbDeviceContexts.valueAt(i).mouseEmulationActive) return true;
+        }
+        return false;
+    }
+
+    private void applyMouseEmulation(GenericControllerContext context, boolean on) {
+        if (stopped || context.mouseEmulationActive == on) {
+            return;
+        }
+        mainThreadHandler.removeCallbacks(context.mouseEmulationRunnable);
+        context.mouseEmulationActive = on;
+        if (on) {
+            mainThreadHandler.postDelayed(context.mouseEmulationRunnable, context.mouseEmulationReportPeriod);
+        }
+    }
+
     public void destroy() {
         if (!stopped) {
             stop();
@@ -1048,6 +1122,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // Otherwise create a new context
         context = createInputDeviceContextForDevice(event.getDevice());
         inputDeviceContexts.put(event.getDeviceId(), context);
+        if (mouseEmulationForAll) {
+            applyMouseEmulation(context, true);
+        }
 
         return context;
     }
