@@ -11,8 +11,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "12.2"
-        versionCode = 315
+        versionName "12.2-foldcade.1"
+        versionCode = 316
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'
@@ -81,6 +81,19 @@ android {
         }
     }
 
+    // The release pipeline supplies a temporary keystore; no signing material lives in Git.
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv("RELEASE_KEYSTORE_FILE")
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix ".debug"
@@ -88,6 +101,7 @@ android {
             resValue "string", "app_label_root", "Foldcade Moonlight (Root Debug)"
         }
         release {
+            signingConfig signingConfigs.release
             // Upstream asks every fork to use its own application ID rather
             // than com.limelight, so its Play Console only sees official
             // builds. This fork uses app.foldcade.moonlight in every build

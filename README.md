@@ -10,7 +10,7 @@ Moonlight streams games from a computer running [Sunshine](https://github.com/Li
 - Reuse the computers Foldcade has already paired, so you don't pair twice.
 - Start from Foldcade's Moonlight library and return to it.
 
-None of these features are built yet. Right now the app is upstream Moonlight 12.2 with its own application ID and name.
+The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen provides a touchpad, keyboard, live stats, disconnect, and confirmed game quit. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, testing, and release setup.
 
 ## Status
 
@@ -19,8 +19,13 @@ None of these features are built yet. Right now the app is upstream Moonlight 12
 | Upstream base | moonlight-android `master`, Version 12.2 |
 | Application ID | `app.foldcade.moonlight` (debug: `app.foldcade.moonlight.debug`) |
 | App name | Foldcade Moonlight |
+| APK plugin | Protocol 1, Moonlight platform, both displays |
+| Pairing | Foldcade broker in plugin mode; upstream pairing in standalone mode |
+| Companion | Touchpad, keyboard, live stats, disconnect, quit |
 
-It installs next to the official Moonlight app (`com.limelight`) and does not replace it. Foldcade's bundled Moonlight plugin still launches the official app.
+It installs next to the official Moonlight app (`com.limelight`) and does not replace it. A compatible Foldcade build can discover it in Settings › Plugins and launch Foldcade-paired games after sharing is enabled. Opening its own launcher icon still uses the standalone Moonlight UI. A debug-only companion preview supports device QA without a paired PC.
+
+Build and lint are required checks. Full broker-backed streaming and controller behavior across both screens also need end-to-end testing with Foldcade and a paired PC. Signed catalog releases require [Foldcade’s four signing secrets](docs/foldcade-plugin.md#signed-releases).
 
 ## Building
 
@@ -37,7 +42,7 @@ Set `ANDROID_HOME` to your SDK root, or put `sdk.dir=` in a `local.properties` f
 ./gradlew :app:assembleNonRootDebug
 ```
 
-The APK is written to `app/build/outputs/apk/nonRoot/debug/`. Lint runs with `./gradlew :app:lintNonRootDebug`. CI runs both on every pull request and push to `main`.
+The APK is written to `app/build/outputs/apk/nonRoot/debug/`. Lint runs with `./gradlew :app:lintNonRootDebug`. JVM tests run with `./gradlew :app:testNonRootDebugUnitTest`. CI runs the build, lint, and tests on every pull request and push to `main`.
 
 The `root` flavor targets Android 7.1 and older rooted devices. It is kept from upstream, but the Thor uses `nonRoot`.
 
