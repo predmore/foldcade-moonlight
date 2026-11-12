@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade Moonlight art in Foldcade's symbol style: one ink, 24-unit grid. Security screen: a padlock -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M8,11 V8.2 A4,4 0 0 1 16,8.2 V11"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M6.9,10.5 H17.1 A2.4,2.4 0 0 1 19.5,12.9 V18.6 A2.4,2.4 0 0 1 17.1,21 H6.9 A2.4,2.4 0 0 1 4.5,18.6 V12.9 A2.4,2.4 0 0 1 6.9,10.5 ZM12,13.6 A1.7,1.7 0 1 1 11.99,13.6 Z M11.1,16.4 H12.9 V18.6 H11.1 Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>

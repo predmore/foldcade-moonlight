@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: assembleNonRootDebug + lint
+    name: assembleNonRootDebug + lint + JVM tests
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -83,8 +83,8 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
-      - name: Build and lint
-        run: ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug
+      - name: Build, lint, and test
+        run: ./gradlew :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

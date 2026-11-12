@@ -61,6 +61,12 @@ import okhttp3.ResponseBody;
 
 
 public class NvHTTP {
+    /** Optional per-connection transport. Streaming sockets are unaffected. */
+    public interface RequestTransport {
+        String request(String path, String query) throws IOException;
+    }
+
+    private final RequestTransport requestTransport;
     private String uniqueId;
     private PairingManager pm;
 
@@ -191,6 +197,11 @@ public class NvHTTP {
     }
 
     public HttpUrl getHttpsUrl(boolean likelyOnline) throws IOException {
+        if (requestTransport != null) {
+            // Only a routing placeholder: the broker owns HTTPS and port discovery.
+            return baseUrlHttp.newBuilder().scheme("https")
+                    .port(httpsPort == 0 ? DEFAULT_HTTPS_PORT : httpsPort).build();
+        }
         if (httpsPort == 0) {
             // Fetch the HTTPS port if we don't have it already
             httpsPort = getHttpsPort(openHttpConnectionToString(likelyOnline ? httpClientLongConnectTimeout : httpClientShortConnectTimeout,
@@ -201,13 +212,22 @@ public class NvHTTP {
     }
     
     public NvHTTP(ComputerDetails.AddressTuple address, int httpsPort, String uniqueId, X509Certificate serverCert, LimelightCryptoProvider cryptoProvider) throws IOException {
+        this(address, httpsPort, uniqueId, serverCert, cryptoProvider, null);
+    }
+
+    public NvHTTP(ComputerDetails.AddressTuple address, int httpsPort, String uniqueId,
+                  X509Certificate serverCert, LimelightCryptoProvider cryptoProvider,
+                  RequestTransport requestTransport) throws IOException {
+        this.requestTransport = requestTransport;
         // Use the same UID for all Moonlight clients so we can quit games
         // started by other Moonlight clients.
         this.uniqueId = "0123456789ABCDEF";
 
         this.serverCert = serverCert;
 
-        initializeHttpState(cryptoProvider);
+        if (requestTransport == null) {
+            initializeHttpState(cryptoProvider);
+        }
 
         this.httpsPort = httpsPort;
 
@@ -234,7 +254,9 @@ public class NvHTTP {
             throw new IOException(e);
         }
 
-        this.pm = new PairingManager(this, cryptoProvider);
+        if (requestTransport == null) {
+            this.pm = new PairingManager(this, cryptoProvider);
+        }
     }
 
     static String getXmlString(Reader r, String tagname, boolean throwIfMissing) throws XmlPullParserException, IOException {
@@ -300,6 +322,9 @@ public class NvHTTP {
     }
     
     public String getServerInfo(boolean likelyOnline) throws IOException, XmlPullParserException {
+        if (requestTransport != null) {
+            return openHttpConnectionToString(null, baseUrlHttp, "serverinfo");
+        }
         String resp;
 
         // If we believe the PC is online, give it a little extra time to respond
@@ -428,6 +453,10 @@ public class NvHTTP {
     // The initial pair query does require outside action (user entering a PIN) but subsequent pairing
     // queries do not.
     private ResponseBody openHttpConnection(OkHttpClient client, HttpUrl baseUrl, String path, String query) throws IOException {
+        if (requestTransport != null) {
+            return ResponseBody.create(requestTransport.request(path, query),
+                    okhttp3.MediaType.get("application/xml; charset=utf-8"));
+        }
         HttpUrl completeUrl = getCompleteUrl(baseUrl, path, query);
         Request request = new Request.Builder().url(completeUrl).get().build();
         Response response = performAndroidTlsHack(client).newCall(request).execute();
@@ -461,13 +490,13 @@ public class NvHTTP {
             String respString = resp.string();
             resp.close();
 
-            if (verbose && !path.equals("serverinfo")) {
+            if (verbose && requestTransport == null && !path.equals("serverinfo")) {
                 LimeLog.info(getCompleteUrl(baseUrl, path, query)+" -> "+respString);
             }
 
             return respString;
         } catch (IOException e) {
-            if (verbose && !path.equals("serverinfo")) {
+            if (verbose && requestTransport == null && !path.equals("serverinfo")) {
                 LimeLog.warning(getCompleteUrl(baseUrl, path, query)+" -> "+e.getMessage());
                 e.printStackTrace();
             }

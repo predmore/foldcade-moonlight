@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Afterglow verb: Restart: a ring turning back to the top -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:pathData="M42.5,15.313 A21,21 0 1 1 24.818,13.766 A3.5,3.5 0 0 1 27.212,20.344 A14,14 0 1 0 39,21.376 A3.5,3.5 0 0 1 42.5,15.313 Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M24.898,7.304 Q24.607,5.935 25.864,6.552 L39.332,13.166 Q40.588,13.784 39.691,14.858 L30.078,26.379 Q29.181,27.454 28.89,26.085 Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>

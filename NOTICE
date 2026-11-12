@@ -1,0 +1,14 @@
+Foldcade Moonlight is licensed under the GNU General Public License v3.0 (LICENSE.txt).
+
+It includes material from other projects under their own licenses:
+
+- Foldcade (MIT). The companion's fc_ic_* and fc_symbol_* icons in app/src/main/res/drawable,
+  and code adapted from Foldcade's FocusRing, MenuKit, SliderRow, Motion and
+  ControllerKeyboard in app/src/main/java/com/limelight/foldcade/ui, and from its
+  language/Keyboard.kt in app/src/main/java/com/limelight/foldcade/PcKeyboard.kt. Foldcade's copyright and permission notice:
+  app/src/main/assets/licenses/foldcade-MIT.txt
+
+- Nunito (SIL Open Font License 1.1), app/src/main/res/font/nunito.ttf.
+  License: app/src/main/assets/licenses/OFL-Nunito.txt
+
+- moonlight-common-c and its submodules keep their own licenses.

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <queries>
+        <package android:name="app.foldcade" />
+        <package android:name="app.foldcade.debug" />
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -143,6 +148,37 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
         </activity>
+        <activity android:name=".foldcade.FoldcadePlayActivity"
+            android:exported="true"
+            android:taskAffinity="${applicationId}.play"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:theme="@style/FoldcadeCompanionTheme">
+            <intent-filter>
+                <action android:name="app.foldcade.plugin.action.PLAY" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="app.foldcade.plugin.PROTOCOL" android:value="1" />
+            <meta-data android:name="app.foldcade.plugin.PLATFORM" android:value="moonlight" />
+            <meta-data android:name="app.foldcade.plugin.SCREENS" android:value="both" />
+            <meta-data android:name="app.foldcade.plugin.ACCESS" android:value="gamestream" />
+        </activity>
+        <activity android:name=".foldcade.FoldcadeStreamActivity"
+            android:exported="false"
+            android:taskAffinity="${applicationId}.stream"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:theme="@style/StreamTheme" />
+        <activity android:name=".foldcade.CompanionActivity"
+            android:exported="false"
+            android:taskAffinity="${applicationId}.companion"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|screenLayout|density|uiMode"
+            android:theme="@style/FoldcadeCompanionTheme" />
+
         <activity
             android:name=".Game"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"

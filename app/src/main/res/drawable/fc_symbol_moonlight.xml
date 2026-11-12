@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Afterglow symbol: A crescent moon and a star -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:pathData="M49.373,40.095 A21,21 0 1 1 26.072,14.205 A17.5,17.5 0 0 0 49.373,40.095 ZM50,6 Q51,13 57,14 Q51,15 50,22 Q49,15 43,14 Q49,13 50,6 Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>

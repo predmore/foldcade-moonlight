@@ -185,6 +185,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        if (!prepareStream()) {
+            finish();
+            return;
+        }
+
         UiHelper.setLocale(this);
 
         // We don't want a title bar
@@ -217,6 +222,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
+        configureStreamPreferences(prefConfig);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
 
         // Enter landscape unless we're on a square screen
@@ -485,9 +491,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         conn = new NvConnection(getApplicationContext(),
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
-                PlatformBinding.getCryptoProvider(this), serverCert);
+                getRequestTransport() == null ? PlatformBinding.getCryptoProvider(this) : null,
+                serverCert, getRequestTransport());
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
+        onConnectionCreated(conn);
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
@@ -748,7 +756,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // With Android native pointer capture, capture is lost when focus is lost,
         // so it must be requested again when focus is regained.
-        inputCaptureProvider.onWindowFocusChanged(hasFocus);
+        if (inputCaptureProvider != null) {
+            inputCaptureProvider.onWindowFocusChanged(hasFocus);
+        }
     }
 
     private boolean isRefreshRateEqualMatch(float refreshRate) {
@@ -1057,7 +1067,72 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         // Destroy the capture provider
-        inputCaptureProvider.destroy();
+        if (inputCaptureProvider != null) {
+            inputCaptureProvider.destroy();
+        }
+    }
+
+    // Small extension points for the separate Foldcade entry point.
+    protected boolean prepareStream() { return true; }
+    protected void configureStreamPreferences(PreferenceConfiguration preferences) { }
+    protected NvHTTP.RequestTransport getRequestTransport() { return null; }
+    protected void onConnectionCreated(NvConnection connection) { }
+    /** Releases everything the controllers hold on the PC, for a subclass that takes their input. */
+    protected void releaseControllerInput() {
+        if (controllerHandler != null) controllerHandler.releaseAllInput();
+    }
+    /** Keeps every controller's input, sensors included, from the PC while another screen owns it. */
+    protected void suspendControllerInput(boolean suspended) {
+        if (controllerHandler != null) controllerHandler.setInputSuspended(suspended);
+    }
+    /**
+     * Keeps mouse and other pointer input, captured or not, from the PC while a subclass shows its
+     * own controls over the stream. Suspending lets go of every mouse button and gives the pointer
+     * back to the system, so those controls can be clicked; resuming captures it again if it was.
+     */
+    protected void suspendPointerInput(boolean suspended) {
+        if (suspended == pointerInputSuspended) {
+            return;
+        }
+        pointerInputSuspended = suspended;
+        if (suspended) {
+            // A finger already on the stream has drag and tap timers that would press a button
+            // later, with its release swallowed while suspended. Cancel them first.
+            for (TouchContext touchContext : touchContextMap) {
+                if (touchContext != null) {
+                    touchContext.cancelTouch();
+                    touchContext.setPointerCount(0);
+                }
+            }
+            if (conn != null) {
+                byte[] buttons = { MouseButtonPacket.BUTTON_LEFT, MouseButtonPacket.BUTTON_RIGHT, MouseButtonPacket.BUTTON_MIDDLE,
+                        MouseButtonPacket.BUTTON_X1, MouseButtonPacket.BUTTON_X2 };
+                // A drag on the touch trackpad holds a button too, so every one comes up, not only the mouse's.
+                for (byte button : buttons) {
+                    conn.sendMouseButtonUp(button);
+                }
+            }
+            lastButtonState = 0;
+            captureBeforeSuspension = inputCaptureProvider != null && inputCaptureProvider.isCapturingEnabled();
+            if (captureBeforeSuspension) {
+                inputCaptureProvider.disableCapture();
+            }
+        }
+        else if (captureBeforeSuspension && grabbedInput && inputCaptureProvider != null) {
+            inputCaptureProvider.enableCapture();
+            if (cursorVisible) {
+                inputCaptureProvider.showCursor();
+            }
+        }
+    }
+    private boolean pointerInputSuspended, captureBeforeSuspension;
+
+    /** Moonlight's controller mouse emulation, which a long Start press also toggles. */
+    protected void setControllerMouse(boolean on) {
+        if (controllerHandler != null) controllerHandler.setMouseEmulation(on);
+    }
+    protected boolean isControllerMouseActive() {
+        return controllerHandler != null && controllerHandler.isMouseEmulationActive();
     }
 
     @Override
@@ -1069,7 +1144,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             }
 
             // Ungrab input to prevent further input device notifications
-            setInputGrabState(false);
+            if (inputCaptureProvider != null) {
+                setInputGrabState(false);
+            }
         }
 
         super.onPause();
@@ -1789,6 +1866,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         int eventSource = event.getSource();
+        // Controllers are suspended in ControllerHandler; everything else that points is held here.
+        if (pointerInputSuspended && (eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) == 0) {
+            return true;
+        }
         int deviceSources = event.getDevice() != null ? event.getDevice().getSources() : 0;
         if ((eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) != 0) {
             if (controllerHandler.handleMotionEvent(event)) {
@@ -2248,11 +2329,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
+    /** A subclass's own explanation for a failed start, shown instead of the port advice. Null keeps upstream's. */
+    protected String stageFailureMessage() { return null; }
+
     @Override
     public void stageFailed(final String stage, final int portFlags, final int errorCode) {
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
-        final int portTestResult = MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
+        final String overrideText = stageFailureMessage();
+        final int portTestResult = overrideText != null ? MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
+                MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -2273,7 +2359,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                     String dialogText = getResources().getString(R.string.conn_error_msg) + " " + stage +" (error "+errorCode+")";
 
-                    if (portFlags != 0) {
+                    if (overrideText != null) {
+                        dialogText = overrideText;
+                    } else if (portFlags != 0) {
                         dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
                                 MoonBridge.stringifyPortFlags(portFlags, "\n");
                     }

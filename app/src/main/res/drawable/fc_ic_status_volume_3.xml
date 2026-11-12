@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Volume level 3 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.4,10 Q3.4,8.8 4.6,8.8 H7.4 L11.2,5.5 Q12.6,4.4 12.6,6.2 V17.8 Q12.6,19.6 11.2,18.5 L7.4,15.2 H4.6 Q3.4,15.2 3.4,14 Z"
+        android:fillColor="#FFF4F1EA" />
+    <path
+        android:pathData="M15.162,9.554 A3.4,3.4 0 0 1 15.162,14.446"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M17.246,7.396 A6.4,6.4 0 0 1 17.246,16.604"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M19.33,5.238 A9.4,9.4 0 0 1 19.33,18.762"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

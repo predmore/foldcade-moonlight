@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Afterglow symbol: A monitor showing a controller -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:pathData="M9,8H55A4,4 0 0 1 59,12V41A4,4 0 0 1 55,45H9A4,4 0 0 1 5,41V12A4,4 0 0 1 9,8ZM11,12H53A2,2 0 0 1 55,14V39A2,2 0 0 1 53,41H11A2,2 0 0 1 9,39V14A2,2 0 0 1 11,12ZM26.96,18.31L37.04,18.31C40.4,18.31 42.08,19.99 43.13,24.19L44.39,29.65C45.02,33.01 43.34,34.69 41.24,34.69C39.56,34.69 38.51,33.43 37.67,31.75L36.83,30.07L27.17,30.07L26.33,31.75C25.49,33.43 24.44,34.69 22.76,34.69C20.66,34.69 18.98,33.01 19.61,29.65L20.87,24.19C21.92,19.99 23.6,18.31 26.96,18.31ZM28,45H36V51.5H28V45ZM20.5,51.5H43.5A2.5,2.5 0 0 1 46,54V54A2.5,2.5 0 0 1 43.5,56.5H20.5A2.5,2.5 0 0 1 18,54V54A2.5,2.5 0 0 1 20.5,51.5Z"
+        android:fillColor="#FFF4F1EA"
+        android:fillType="evenOdd" />
+</vector>

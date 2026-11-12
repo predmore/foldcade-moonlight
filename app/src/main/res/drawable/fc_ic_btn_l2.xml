@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade original art, MIT licensed, copied from Foldcade (see assets/licenses/foldcade-MIT.txt). Shoulder L2 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3,10 Q3,4.5 9,4.5 H15 Q21,4.5 21,10 V17.5 Q21,19.5 19,19.5 H5 Q3,19.5 3,17.5 Z"
+        android:fillColor="#FF30333B" />
+    <path
+        android:pathData="M7.578,9.3L7.578,15.9L10.878,15.9M12.594,11.016A1.914,1.914 0 1 1 16.026,12.204L12.462,15.9L16.422,15.9"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

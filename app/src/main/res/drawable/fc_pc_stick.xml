@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foldcade Moonlight art in Foldcade's symbol style: one ink, 24-unit grid. Stick deadzone: a stick at rest in its ring -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,12 A8.5,8.5 0 1 1 20.5,12 A8.5,8.5 0 1 1 3.5,12 Z"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M8.4,12 A3.6,3.6 0 1 1 15.6,12 A3.6,3.6 0 1 1 8.4,12 Z"
+        android:fillColor="#FFF4F1EA" />
+    <path
+        android:pathData="M5.9,12 A6.1,6.1 0 1 1 18.1,12 A6.1,6.1 0 1 1 5.9,12 Z"
+        android:strokeColor="#FFF4F1EA"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
