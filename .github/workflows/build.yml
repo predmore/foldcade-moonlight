@@ -27,6 +27,13 @@ jobs:
         with:
           submodules: recursive
 
+      # A pull request that changes versionName releases v<versionName> when it merges.
+      - name: Check versionName
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash .github/release/check-version.sh
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

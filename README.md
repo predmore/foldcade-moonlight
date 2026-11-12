@@ -26,7 +26,7 @@ The APK plugin implements Foldcade’s shared-pairing broker and dual-screen str
 
 It installs next to the official Moonlight app (`com.limelight`) and does not replace it. A compatible Foldcade build can discover it in Settings › Plugins and launch Foldcade-paired games after sharing is enabled. Opening its own launcher icon still uses the standalone Moonlight UI. A debug-only companion preview supports device QA without a paired PC.
 
-Build and lint are required checks. Full broker-backed streaming and controller behavior across both screens also need end-to-end testing with Foldcade and a paired PC. Signed catalog releases require [Foldcade’s four signing secrets](docs/foldcade-plugin.md#signed-releases).
+Build and lint are required checks. Full broker-backed streaming and controller behavior across both screens also need end-to-end testing with Foldcade and a paired PC. Releases are tagged `v<versionName>`, such as `v12.2-foldcade.1`, and signed with Foldcade's key. See [releases](docs/releases.md).
 
 ## Building
 
@@ -67,7 +67,7 @@ Foldcade Moonlight is licensed under the [GNU General Public License v3.0](LICEN
 - **Foldcade art and code in the companion:** its symbol icons and parts of its Compose components are copied or adapted from Foldcade under the MIT license. Foldcade's copyright and permission notice is in [`app/src/main/assets/licenses/foldcade-MIT.txt`](app/src/main/assets/licenses/foldcade-MIT.txt), and the files name it. See [NOTICE](NOTICE).
 - **Nunito:** the companion's font is under the SIL Open Font License, shipped as [`app/src/main/assets/licenses/OFL-Nunito.txt`](app/src/main/assets/licenses/OFL-Nunito.txt).
 
-If you distribute an APK, the GPL requires you to offer its complete source code too. One way is to publish it as a release in this repository, tagged at the commit it was built from.
+If you distribute an APK, the GPL requires you to offer its complete source code too. Each release here carries a source archive with the submodules included, since GitHub's own source downloads leave them out. See [releases](docs/releases.md).
 
 ## Credits
 

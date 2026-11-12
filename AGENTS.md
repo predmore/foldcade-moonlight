@@ -25,6 +25,10 @@ git submodule update --init --recursive
 
 Use the `nonRoot` flavor. The `root` flavor is for rooted Android 7.1 and older devices and is not used on the Thor. Upstream has no JVM unit tests.
 
+## Releases
+
+Changing `versionName` in `app/build.gradle` (form `12.2-foldcade.1`) and merging to `main` releases tag `v<versionName>`. CI computes `versionCode`. Never push upstream's tags (`git push --tags`). See [docs/releases.md](docs/releases.md).
+
 ## Layout
 
 - `app/src/main/java/com/limelight/`: the Java app. The namespace stays `com.limelight` to keep upstream merges clean. Only the application ID changed.
