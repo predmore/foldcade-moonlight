@@ -1,6 +1,8 @@
 # Releases
 
-Each release is a GitHub release with one asset, `foldcade-moonlight.apk`, signed with Foldcade's release key. Foldcade's plugin catalog installs and updates the plugin from `releases/latest`. The tag is the GPL source for that APK.
+Each release is a GitHub release with `foldcade-moonlight.apk`, signed with Foldcade's release key, and `foldcade-moonlight-<tag>-source.tar.gz`, its complete source. Foldcade's plugin catalog installs and updates the plugin from `releases/latest`.
+
+The source archive is what the GPL asks for. GitHub's own source downloads leave out submodules, and the APK includes compiled code from `moonlight-common-c`, `enet`, and `nanors`. The archive has every file in the tagged commit and in those submodules.
 
 ## Versions
 
@@ -35,7 +37,7 @@ This is how to release a `versionName` that is already on `main`, such as the fi
 - the APK isn't signed only by that key, or its package, `versionCode`, or `versionName` is wrong;
 - its `versionCode` is not above the latest release's, so Foldcade wouldn't offer it as an update.
 
-Then it checks that the release is public, not a pre-release, and carries `foldcade-moonlight.apk`. The scripts are in [`.github/release/`](../.github/release/).
+Then it checks that the release is public, not a pre-release, and carries both the APK and the source archive. The scripts are in [`.github/release/`](../.github/release/).
 
 ## Signing secrets
 

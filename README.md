@@ -67,7 +67,7 @@ Foldcade Moonlight is licensed under the [GNU General Public License v3.0](LICEN
 - **Foldcade art and code in the companion:** its symbol icons and parts of its Compose components are copied or adapted from Foldcade under the MIT license. Foldcade's copyright and permission notice is in [`app/src/main/assets/licenses/foldcade-MIT.txt`](app/src/main/assets/licenses/foldcade-MIT.txt), and the files name it. See [NOTICE](NOTICE).
 - **Nunito:** the companion's font is under the SIL Open Font License, shipped as [`app/src/main/assets/licenses/OFL-Nunito.txt`](app/src/main/assets/licenses/OFL-Nunito.txt).
 
-If you distribute an APK, the GPL requires you to offer its complete source code too. One way is to publish it as a release in this repository, tagged at the commit it was built from.
+If you distribute an APK, the GPL requires you to offer its complete source code too. Each release here carries a source archive with the submodules included, since GitHub's own source downloads leave them out. See [releases](docs/releases.md).
 
 ## Credits
 

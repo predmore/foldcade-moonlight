@@ -80,6 +80,20 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # The GPL requires the APK's complete source. GitHub's own source
+      # archives leave out submodules, whose native code is in the APK.
+      - name: Archive the complete source, submodules included
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/foldcade-moonlight-${TAG}-source.tar.gz"
+          git ls-files -z --recurse-submodules \
+            | tar --null --files-from=- --transform "s,^,foldcade-moonlight-${TAG}/," -czf "$out"
+          tar -tzf "$out" | grep -qx "foldcade-moonlight-${TAG}/app/src/main/jni/moonlight-core/moonlight-common-c/src/Limelight.h"
+          tar -tzf "$out" | grep -q "^foldcade-moonlight-${TAG}/app/src/main/jni/moonlight-core/moonlight-common-c/enet/"
+          echo "SOURCE_ARCHIVE=$out" >> "$GITHUB_ENV"
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -175,7 +189,7 @@ jobs:
           TAG: ${{ needs.plan.outputs.tag }}
           VERSION_NAME: ${{ needs.plan.outputs.version_name }}
           VERSION_CODE: ${{ needs.plan.outputs.version_code }}
-        run: bash .github/release/publish.sh "$RUNNER_TEMP/foldcade-moonlight.apk"
+        run: bash .github/release/publish.sh "$RUNNER_TEMP/foldcade-moonlight.apk" "$SOURCE_ARCHIVE"
 
       - name: Remove signing material
         if: always()

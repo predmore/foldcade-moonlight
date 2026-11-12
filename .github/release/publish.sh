@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Publishes foldcade-moonlight.apk as the latest GitHub release for $TAG.
+# Publishes foldcade-moonlight.apk as the latest GitHub release for $TAG,
+# with the complete source archive (submodules included) that the GPL asks for.
 # Foldcade's catalog reads releases/latest and that asset name, and installs
 # the APK only when its versionCode is above the installed one.
 # Creates the tag on $GITHUB_SHA when it is missing. A tag created with the
@@ -9,11 +10,16 @@
 set -euo pipefail
 
 apk="${1:?path to foldcade-moonlight.apk}"
+source_archive="${2:?path to the source archive}"
 : "${TAG:?}" "${VERSION_NAME:?}" "${VERSION_CODE:?}" "${GITHUB_SHA:?}" "${GITHUB_REPOSITORY:?}"
 
 asset="foldcade-moonlight.apk"
 if [ "$(basename "$apk")" != "$asset" ] || [ ! -s "$apk" ]; then
   echo "::error::Expected a non-empty ${asset}, got ${apk}."
+  exit 1
+fi
+if [ "$(basename "$source_archive")" != "foldcade-moonlight-${TAG}-source.tar.gz" ] || [ ! -s "$source_archive" ]; then
+  echo "::error::Expected a non-empty foldcade-moonlight-${TAG}-source.tar.gz, got ${source_archive}."
   exit 1
 fi
 
@@ -59,6 +65,7 @@ trap 'rm -f "$notes"' EXIT
   printf 'versionName: %s\n' "$VERSION_NAME"
   printf 'versionCode: %s\n' "$VERSION_CODE"
   printf 'commit: %s\n\n' "$GITHUB_SHA"
+  printf 'Complete source, submodules included: %s\n\n' "$(basename "$source_archive")"
   if [ -f "${root}/.github/release/notes/${TAG}.md" ]; then
     cat "${root}/.github/release/notes/${TAG}.md"
   else
@@ -71,10 +78,10 @@ trap 'rm -f "$notes"' EXIT
 
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release ${TAG} exists. Replacing ${asset}."
-  gh release upload "$TAG" "$apk" --clobber
+  gh release upload "$TAG" "$apk" "$source_archive" --clobber
   gh release edit "$TAG" --notes-file "$notes" --draft=false --prerelease=false --latest
 else
-  args=("$TAG" "$apk" --title "$TAG" --notes-file "$notes" --latest)
+  args=("$TAG" "$apk" "$source_archive" --title "$TAG" --notes-file "$notes" --latest)
   if [ "$tag_exists" = true ]; then
     args+=(--verify-tag)
   else
@@ -88,14 +95,14 @@ ok=false
 for wait in 0 2 4 8; do
   sleep "$wait"
   if json="$(gh api "${repo}/releases/tags/${TAG}" 2>/dev/null)" \
-    && [ "$(jq -r --arg a "$asset" '(.draft | not) and (.prerelease | not) and ([.assets[].name] | index($a) != null)' <<<"$json")" = "true" ]
+    && [ "$(jq -r --arg a "$asset" --arg s "$(basename "$source_archive")" '(.draft | not) and (.prerelease | not) and ([.assets[].name] | index($a) != null and index($s) != null)' <<<"$json")" = "true" ]
   then
     ok=true
     break
   fi
 done
 if [ "$ok" != true ]; then
-  echo "::error::Release ${TAG} is missing, a draft, a pre-release, or has no ${asset}."
+  echo "::error::Release ${TAG} is missing, a draft, a pre-release, or lacks ${asset} or the source archive."
   exit 1
 fi
 if [ "$(tag_commit || true)" != "$GITHUB_SHA" ]; then
