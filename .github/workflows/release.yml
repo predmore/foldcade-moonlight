@@ -90,8 +90,13 @@ jobs:
           out="$RUNNER_TEMP/foldcade-moonlight-${TAG}-source.tar.gz"
           git ls-files -z --recurse-submodules \
             | tar --null --files-from=- --transform "s,^,foldcade-moonlight-${TAG}/," -czf "$out"
-          tar -tzf "$out" | grep -qx "foldcade-moonlight-${TAG}/app/src/main/jni/moonlight-core/moonlight-common-c/src/Limelight.h"
-          tar -tzf "$out" | grep -q "^foldcade-moonlight-${TAG}/app/src/main/jni/moonlight-core/moonlight-common-c/enet/"
+          # List once into a file. Piping tar into grep -q fails the step: grep stops
+          # at its first match, and tar dies writing to the closed pipe.
+          tar -tzf "$out" > "$RUNNER_TEMP/source-files.txt"
+          common="foldcade-moonlight-${TAG}/app/src/main/jni/moonlight-core/moonlight-common-c"
+          grep -qx "$common/src/Limelight.h" "$RUNNER_TEMP/source-files.txt"
+          grep -q "^$common/enet/." "$RUNNER_TEMP/source-files.txt"
+          grep -q "^$common/nanors/." "$RUNNER_TEMP/source-files.txt"
           echo "SOURCE_ARCHIVE=$out" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v6
