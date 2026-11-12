@@ -14,7 +14,7 @@ android {
         minSdk 23
         targetSdk 36
 
-        versionName "12.2-foldcade.1"
+        versionName "12.2-foldcade.2"
         versionCode = 316
         // Release CI passes git rev-list --count HEAD. 316 is upstream's code, the local fallback.
         def foldcadeVersionCode = project.findProperty("foldcadeVersionCode")
