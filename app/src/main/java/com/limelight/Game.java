@@ -1096,6 +1096,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         pointerInputSuspended = suspended;
         if (suspended) {
+            // A finger already on the stream has drag and tap timers that would press a button
+            // later, with its release swallowed while suspended. Cancel them first.
+            for (TouchContext touchContext : touchContextMap) {
+                if (touchContext != null) {
+                    touchContext.cancelTouch();
+                    touchContext.setPointerCount(0);
+                }
+            }
             if (conn != null) {
                 byte[] buttons = { MouseButtonPacket.BUTTON_LEFT, MouseButtonPacket.BUTTON_RIGHT, MouseButtonPacket.BUTTON_MIDDLE,
                         MouseButtonPacket.BUTTON_X1, MouseButtonPacket.BUTTON_X2 };
