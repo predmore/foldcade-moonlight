@@ -16,6 +16,11 @@ android {
 
         versionName "12.2-foldcade.1"
         versionCode = 316
+        // Release CI passes git rev-list --count HEAD. 316 is upstream's code, the local fallback.
+        def foldcadeVersionCode = project.findProperty("foldcadeVersionCode")
+        if (foldcadeVersionCode) {
+            versionCode = Integer.parseInt(foldcadeVersionCode.toString())
+        }
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'

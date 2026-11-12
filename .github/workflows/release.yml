@@ -1,20 +1,62 @@
 name: Release
 
+# A push to main that changes versionName in app/build.gradle releases
+# v<versionName>, for example v12.2-foldcade.1, and creates that tag.
+# Pushing a tag of that shape releases the commit it points at. Upstream's
+# own tags (v12.2 and older) do not match and never start a release.
+# versionCode is git rev-list --count HEAD. See docs/releases.md.
 on:
   push:
+    branches:
+      - main
     tags:
-      - 'v*'
+      - 'v*-foldcade.*'
 
 permissions:
-  contents: write
+  contents: read
 
+# A cancelled run could leave a release without its APK. queue: max keeps
+# every pending push: by default a later push to main would replace a pending
+# versionName bump, and that release would never run.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
+
+env:
+  # SHA-256 of Foldcade's release certificate. Foldcade's catalog installs this
+  # plugin only when it is signed with Foldcade's own key.
+  FOLDCADE_SIGNER_SHA256: 36f6883086e694e0a8b245421543063e6b96450970bd4030198543a59e6581ff
 
 jobs:
-  release:
+  plan:
+    name: Decide whether to release
+    if: github.repository == 'predmore/foldcade-moonlight'
     runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version_name: ${{ steps.plan.outputs.version_name }}
+      version_code: ${{ steps.plan.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: plan
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: bash .github/release/plan.sh
+
+  release:
+    name: Signed nonRoot release
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
     # Secrets are given only to the steps that need them, never to third-party actions.
     steps:
       - name: Require Foldcade's release signing secrets
@@ -23,11 +65,10 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        shell: bash
         run: |
           set -euo pipefail
           for name in RELEASE_KEYSTORE_BASE64 RELEASE_KEYSTORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
-            if [ -z "${!name}" ]; then
+            if [ -z "${!name//[[:space:]]/}" ]; then
               echo "::error::Missing $name. Copy Foldcade's four release signing secrets into this repository."
               exit 1
             fi
@@ -35,6 +76,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           submodules: recursive
           persist-credentials: false
 
@@ -43,52 +85,98 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-
       - name: Install Android SDK packages
-        shell: bash
         run: |
           set -euo pipefail
+          sdk_root="$HOME/android-sdk"
           ndk_version="$(sed -n 's/^ *ndkVersion "\(.*\)"/\1/p' app/build.gradle)"
           test -n "$ndk_version"
-          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' "ndk;$ndk_version"
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/cmdlinetools.zip" \
+            https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip
+          unzip -q "$tmp/cmdlinetools.zip" -d "$tmp"
+          mkdir -p "$sdk_root/cmdline-tools"
+          mv "$tmp/cmdline-tools" "$sdk_root/cmdline-tools/latest"
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          # sdkmanager closes stdin, so `yes` exits 141. Licenses are still accepted.
+          yes | "$sdkmanager" --sdk_root="$sdk_root" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$sdk_root" --install \
+            "platforms;android-37.0" \
+            "build-tools;37.0.0" \
+            "platform-tools" \
+            "ndk;$ndk_version"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
 
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          # The release configuration reads the keystore passwords. Do not write that cache.
+          cache-read-only: true
 
-      - name: Decode temporary signing keystore
+      - name: Decode and check the release keystore
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-        shell: bash
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           umask 077
-          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
-          echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          keystore="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$keystore"
+          test -s "$keystore"
+          keytool -list -v -keystore "$keystore" -alias "$RELEASE_KEY_ALIAS" \
+            -storepass:env RELEASE_KEYSTORE_PASSWORD > "$RUNNER_TEMP/keystore-cert.txt"
+          cert="$(sed -n 's/^[[:space:]]*SHA256: //p' "$RUNNER_TEMP/keystore-cert.txt" | sed -n '1p' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          if [ "$cert" != "$FOLDCADE_SIGNER_SHA256" ]; then
+            echo "::error::The keystore's key is not Foldcade's release key. Foldcade's catalog would refuse this APK."
+            exit 1
+          fi
+          echo "RELEASE_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
 
-      - name: Build and verify signed nonRoot APK
+      - name: Build, lint, and test the signed nonRoot APK
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        shell: bash
+          VERSION_CODE: ${{ needs.plan.outputs.version_code }}
         run: |
           set -euo pipefail
-          ./gradlew :app:assembleNonRootRelease :app:lintNonRootRelease :app:testNonRootDebugUnitTest
-          cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk "$RUNNER_TEMP/foldcade-moonlight.apk"
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify "$RUNNER_TEMP/foldcade-moonlight.apk"
+          ./gradlew -PfoldcadeVersionCode="$VERSION_CODE" \
+            :app:assembleNonRootRelease :app:lintNonRootRelease :app:testNonRootDebugUnitTest
 
-      - name: Publish release APK
+      - name: Verify the APK's signer and version
+        env:
+          VERSION_NAME: ${{ needs.plan.outputs.version_name }}
+          VERSION_CODE: ${{ needs.plan.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk"
+          tools="$ANDROID_HOME/build-tools/37.0.0"
+          "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/apk-certs.txt"
+          certs="$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/apk-certs.txt" | sort -u)"
+          if [ "$certs" != "$FOLDCADE_SIGNER_SHA256" ]; then
+            echo "::error::The APK is not signed only by Foldcade's release key."
+            exit 1
+          fi
+          # sed reads all of aapt2's output. head would close the pipe early, and aapt2 would die of SIGPIPE.
+          badging="$("$tools/aapt2" dump badging "$apk" | sed -n '1p')"
+          echo "$badging"
+          expected="package: name='app.foldcade.moonlight' versionCode='${VERSION_CODE}' versionName='${VERSION_NAME}' "
+          if [[ "$badging" != "$expected"* ]]; then
+            echo "::error::Expected ${expected}"
+            exit 1
+          fi
+          cp "$apk" "$RUNNER_TEMP/foldcade-moonlight.apk"
+
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
-          fi
-          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/foldcade-moonlight.apk" --clobber
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION_NAME: ${{ needs.plan.outputs.version_name }}
+          VERSION_CODE: ${{ needs.plan.outputs.version_code }}
+        run: bash .github/release/publish.sh "$RUNNER_TEMP/foldcade-moonlight.apk"
 
       - name: Remove signing material
         if: always()
-        shell: bash
         run: rm -f "$RUNNER_TEMP/release.keystore"
