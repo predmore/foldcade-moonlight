@@ -15,6 +15,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -158,20 +159,23 @@ internal fun Modifier.place(shown: () -> Float): Modifier = this
 
 /**
  * [target] with calm: a step up (giving something up) is taken at once; a step back down waits
- * until [target] has stayed lower for 10 s, or 30 s when it comes back from [slowFrom] or later
- * to before it, so a value that comes and goes never makes the header blink. A new [key] (the
- * player's own change, such as opening detail) starts afresh with no hold.
+ * until [target] has stayed lower for 10 s, or 30 s when it crosses back from [slowFrom] or later
+ * to before it, so a value that comes and goes never makes the header blink. The wait runs while
+ * the target stays lower, whichever lower step it is, and then settles on the latest. A new [key]
+ * (the player's own change, such as opening detail) starts afresh with no hold.
  */
 @Composable
 internal fun heldStep(target: Int, key: Any, slowFrom: Int = Int.MAX_VALUE): Int {
     var held by remember(key) { mutableIntStateOf(target) }
-    LaunchedEffect(target, key) {
-        if (target >= held) {
-            held = target
-            return@LaunchedEffect
-        }
-        delay(if (held >= slowFrom && target < slowFrom) 30_000L else 10_000L)
-        held = target
+    val latest by rememberUpdatedState(target)
+    LaunchedEffect(target, key) { if (target > held) held = target }
+    val lower = target < held
+    val slow = lower && held >= slowFrom && target < slowFrom
+    LaunchedEffect(lower, slow, held, key) {
+        if (!lower) return@LaunchedEffect
+        delay(if (slow) 30_000L else 10_000L)
+        // A short wait never brings back what only the long one may.
+        held = if (!slow && held >= slowFrom) maxOf(latest, slowFrom) else latest
     }
     return maxOf(target, held)
 }

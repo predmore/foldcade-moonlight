@@ -78,7 +78,8 @@ internal object HeaderFit {
         return when {
             detail -> slot >= metricsWidth(w, plan.metrics)
             !plan.title -> slot >= 0f
-            plan.mark -> slot >= w.titleWant
+            // Never keep the mark while the title shows less than its least: wide characters can need more than 88dp.
+            plan.mark -> slot >= maxOf(w.titleWant, w.titleMin)
             else -> slot >= w.titleMin
         }
     }

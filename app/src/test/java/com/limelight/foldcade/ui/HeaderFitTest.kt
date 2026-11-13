@@ -28,6 +28,11 @@ class HeaderFitTest {
         assertEquals(0, HeaderFit.step(widths(available = 300f, titleWant = 45f, titleMin = 45f), detail = false))
     }
 
+    @Test fun aTitleWhoseFirstFiveCharactersAreWideStillDropsTheMarkFirst() {
+        // 90 for the title with the mark: past 88, but short of the 94 its first five characters need.
+        assertEquals(1, HeaderFit.step(widths(available = 302f, titleMin = 94f), detail = false))
+    }
+
     @Test fun belowItsFirstFiveCharactersTheTitleGivesWayAndTheMarkReturns() {
         // Without the mark the title would get 58, short of its 70; with the title gone the mark fits.
         assertEquals(HeaderFit.TITLE_GONE, HeaderFit.step(widths(available = 339f, pill = 165f, status = 92f, titleMin = 70f), detail = false))
