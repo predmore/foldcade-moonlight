@@ -66,44 +66,40 @@ internal fun Fold.percentStyle(battery: DeviceStatus.Battery): TextStyle {
  * stop, no tap, and one spoken node that is not a live region.
  *
  * [clockShown] eases the clock away when the header runs short; the glyph and a low percent stay.
- * The glyph and clock together reserve the two-digit-hour width and end at the edge, so the glyph
- * always hugs the clock and nothing moves at 9:59 → 10:00.
+ * The status keeps the width its clock would have at a two-digit hour and ends at the edge, so
+ * the spare room at 1:00–9:59 falls before it, never inside it: a low percent always sits beside
+ * its glyph, the glyph beside the clock, and nothing moves at 9:59 → 10:00.
  */
 @Composable
 internal fun DeviceStatusView(status: DeviceStatus, clockShown: State<Float>, modifier: Modifier = Modifier) {
     val fold = LocalFold.current
     val battery = status.battery
-    val density = LocalDensity.current
-    val fontScale = density.fontScale
+    val fontScale = LocalDensity.current.fontScale
     val measurer = rememberTextMeasurer()
-    val reserve = with(density) {
-        val clock = measurer.measure(status.widestClock, fold.clockStyle(), maxLines = 1, softWrap = false).size.width
-        if (battery == null) clock.toFloat() else clock + (StatusMetrics.glyph(fontScale) + StatusMetrics.GAP).toPx()
-    }
+    fun width(text: String) = measurer.measure(text, fold.clockStyle(), maxLines = 1, softWrap = false).size.width
+    // What a two-digit hour adds over the clock shown now; nothing once the clock has gone.
+    val spare = maxOf(0, width(status.widestClock) - width(status.clock))
     val low by eased(if (battery?.low == true) 1f else 0f, fold.durationSelect)
-    Row(modifier.clearAndSetSemantics { contentDescription = status.spoken }, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier
+            .clearAndSetSemantics { contentDescription = status.spoken }
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints.copy(minWidth = 0))
+                val width = (placeable.width + (spare * clockShown.value.coerceIn(0f, 1f)).roundToInt()).coerceAtMost(constraints.maxWidth)
+                layout(width, placeable.height) { placeable.place(width - placeable.width, 0) }
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (battery != null) {
             if (low > 0f) Row(Modifier.place { low }, verticalAlignment = Alignment.CenterVertically) {
                 BasicText("${battery.percent}%", style = fold.percentStyle(battery), maxLines = 1)
                 Gap(width = StatusMetrics.GAP)
             }
+            BatteryGlyph(battery, StatusMetrics.glyph(fontScale))
         }
-        // The glyph and the clock, ending at the edge inside the reserved width. As the clock goes,
-        // the reserve goes with it, so the glyph eases to the edge.
-        Row(
-            Modifier.layout { measurable, constraints ->
-                val placeable = measurable.measure(constraints.copy(minWidth = 0))
-                val shown = clockShown.value.coerceIn(0f, 1f)
-                val width = maxOf(placeable.width, (reserve * shown).roundToInt()).coerceAtMost(constraints.maxWidth)
-                layout(width, placeable.height) { placeable.place(width - placeable.width, 0) }
-            },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (battery != null) BatteryGlyph(battery, StatusMetrics.glyph(fontScale))
-            Row(Modifier.place { clockShown.value }, verticalAlignment = Alignment.CenterVertically) {
-                if (battery != null) Gap(width = StatusMetrics.GAP)
-                BasicText(status.clock, style = fold.clockStyle(), maxLines = 1)
-            }
+        Row(Modifier.place { clockShown.value }, verticalAlignment = Alignment.CenterVertically) {
+            if (battery != null) Gap(width = StatusMetrics.GAP)
+            BasicText(status.clock, style = fold.clockStyle(), maxLines = 1)
         }
     }
 }
