@@ -26,8 +26,13 @@ public final class CompanionPreviewActivity extends CompanionActivity {
         if (time == null) return null;
         String[] parts = time.split(":");
         java.util.Calendar at = java.util.Calendar.getInstance();
-        at.set(java.util.Calendar.HOUR_OF_DAY, Integer.parseInt(parts[0]));
-        at.set(java.util.Calendar.MINUTE, Integer.parseInt(parts[1]));
+        try {
+            at.set(java.util.Calendar.HOUR_OF_DAY, Integer.parseInt(parts[0].trim()));
+            at.set(java.util.Calendar.MINUTE, Integer.parseInt(parts[1].trim()));
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException malformed) {
+            // Not H:MM: the real clock, rather than a crash.
+            return null;
+        }
         return at.getTimeInMillis();
     }
 }

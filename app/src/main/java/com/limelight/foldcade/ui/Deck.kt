@@ -406,7 +406,9 @@ private fun Metrics(stats: StreamStats?, targetFps: Int, shown: Int, modifier: M
     val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         if (stats == null) {
-            BasicText(WAITING, style = fold.hint, maxLines = 1)
+            // One line in place of the metrics, which gives way as they do when the header runs short.
+            val place = eased(if (shown > 0) 1f else 0f, fold.durationSelect)
+            BasicText(WAITING, Modifier.place { place.value }, style = fold.hint, maxLines = 1)
             return@Row
         }
         val verdict = StreamHealth.verdict(stats, targetFps)
