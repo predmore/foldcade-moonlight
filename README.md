@@ -10,7 +10,7 @@ Moonlight streams games from a computer running [Sunshine](https://github.com/Li
 - Reuse the computers Foldcade has already paired, so you don't pair twice.
 - Start from Foldcade's Moonlight library and return to it.
 
-The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen is a companion in Foldcade's own look: a trackpad with a scroll strip, PC keys (Esc, Win, Alt+Tab, and held Alt+F4 and Ctrl+Alt+Del), typing by touch or with Foldcade's controller keyboard, live stats, mute, the stick as a mouse, stream settings with apply-and-restart, and a clear choice between Disconnect and a held Quit. It works in landscape and portrait. The Thor's Back button hands the controller between the game and the companion. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, controls, testing, and release setup.
+The APK plugin implements Foldcade’s shared-pairing broker and dual-screen streaming entry point. The bottom screen is a companion in Foldcade's own look: a trackpad with a scroll strip, PC keys (Esc, Win, Alt+Tab, and held Alt+F4 and Ctrl+Alt+Del), typing by touch or with Foldcade's controller keyboard, live stats, the time and battery, mute, the stick as a mouse, stream settings with apply-and-restart, and a clear choice between Disconnect and a held Quit. It works in landscape and portrait. The Thor's Back button hands the controller between the game and the companion. See [the plugin guide](docs/foldcade-plugin.md) for the protocol, controls, testing, and release setup.
 
 ## Status
 
@@ -21,7 +21,7 @@ The APK plugin implements Foldcade’s shared-pairing broker and dual-screen str
 | App name | Foldcade Moonlight |
 | APK plugin | Protocol 1, Moonlight platform, both displays |
 | Pairing | Foldcade broker in plugin mode; upstream pairing in standalone mode |
-| Companion | Compose, Foldcade's look; trackpad, PC keys, typing, stats, settings, Disconnect or Quit; fully controller-driven |
+| Companion | Compose, Foldcade's look; trackpad, PC keys, typing, stats, time and battery, settings, Disconnect or Quit; fully controller-driven |
 | Minimum Android | 6.0 (API 23) for the app; 8.0 for Foldcade mode |
 
 It installs next to the official Moonlight app (`com.limelight`) and does not replace it. A compatible Foldcade build can discover it in Settings › Plugins and launch Foldcade-paired games after sharing is enabled. Opening its own launcher icon still uses the standalone Moonlight UI. A debug-only companion preview supports device QA without a paired PC.

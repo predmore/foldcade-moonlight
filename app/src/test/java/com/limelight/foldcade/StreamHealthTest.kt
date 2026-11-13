@@ -29,4 +29,10 @@ class StreamHealthTest {
         assertEquals(0, StreamHealth.verdict(stats(decode = 5f), 60).level)
         assertEquals(1, StreamHealth.verdict(stats(decode = 5f), 120).level)
     }
+
+    @Test fun withDetailOpenThePillReadsFpsAndPingWhateverTheCause() {
+        assertEquals("60 fps · 4 ms" to 9, StreamHealth.detailPillText(stats(decode = 19f), Locale.US))
+        val (text, pingStart) = StreamHealth.detailPillText(stats(rtt = 92), Locale.US)
+        assertEquals("92 ms", text.substring(pingStart))
+    }
 }

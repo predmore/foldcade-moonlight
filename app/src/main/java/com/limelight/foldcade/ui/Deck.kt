@@ -48,6 +48,14 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
+import com.limelight.foldcade.DeviceStatus
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.limelight.R
@@ -82,6 +90,8 @@ internal class CompanionUi(val title: String, val pcName: String) {
     /** The controller keyboard while the companion has the controller; null types with Android's keyboard. */
     var keyboard by mutableStateOf<PcKeyboard.State?>(null)
     var statsDetail by mutableStateOf(false)
+    /** The Thor's clock and battery; null until first read. */
+    var device by mutableStateOf<DeviceStatus?>(null)
     /** The new stream's settings, briefly after a restart: "1080p60 · 25 Mbps". */
     var applied by mutableStateOf<String?>(null)
     /** The player has used Back to move the controller, so the deck stops offering the hint. */
@@ -228,38 +238,102 @@ private fun Pad(ui: CompanionUi, nav: NavHost, actions: CompanionActions, modifi
 private fun Header(ui: CompanionUi, nav: NavHost) {
     val fold = LocalFold.current
     val detail by eased(if (ui.statsDetail) 1f else 0f, fold.durationSelect)
-    Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-        Glyph(R.drawable.fc_symbol_moonlight, 26.dp, fold.ink, Modifier.graphicsLayer { alpha = 0.9f })
-        Gap(width = 12.dp)
-        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-            if (detail < 1f) Column(Modifier.graphicsLayer { alpha = 1f - detail; translationY = -detail * 10.dp.toPx() }) {
-                BasicText(ui.title, style = fold.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                BasicText(ui.pcName, style = fold.small.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
+    val stats = ui.stats
+    val verdict = stats?.let { StreamHealth.verdict(it, ui.targetFps) }
+    val dot = healthColor(fold, verdict)
+    val pill = pillText(ui, stats, verdict, dot, locale)
+    val device = ui.device
+    val measurer = rememberTextMeasurer()
+    // 44dp, or taller at large text, so the PC's name below the title is never cut; the pad gives way.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val widths = headerWidths(measurer, fold, constraints.maxWidth.toFloat(), ui.title, pill, device, metricTexts(stats, locale))
+        // Opening or closing detail, or a new width, is the player's own change: it takes effect at once.
+        val target = HeaderFit.step(widths, ui.statsDetail)
+        val step = heldStep(target, ui.statsDetail to constraints.maxWidth, if (ui.statsDetail) Int.MAX_VALUE else HeaderFit.TITLE_GONE)
+        val plan = (if (ui.statsDetail) HeaderFit.detailSteps else HeaderFit.titleSteps)[step]
+        val mark = eased(if (plan.mark) 1f else 0f, fold.durationSelect)
+        val title by eased(if (plan.title) 1f else 0f, fold.durationSelect)
+        val clock = eased(if (plan.clock) 1f else 0f, fold.durationSelect)
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.place { mark.value }, verticalAlignment = Alignment.CenterVertically) {
+                Glyph(R.drawable.fc_symbol_moonlight, MARK_SIZE, fold.ink, Modifier.graphicsLayer { alpha = 0.9f })
+                Gap(width = MARK_GAP)
             }
-            if (detail > 0f) Metrics(ui.stats, Modifier.graphicsLayer { alpha = detail; translationY = (1f - detail) * 10.dp.toPx() })
+            if (!plan.pillAtEdge) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (detail < 1f && title > 0f) Column(Modifier.graphicsLayer { alpha = (1f - detail) * title; translationY = -detail * 10.dp.toPx() }) {
+                        BasicText(ui.title, style = fold.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        BasicText(ui.pcName, style = fold.small.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (detail > 0f) Metrics(ui.stats, ui.targetFps, plan.metrics, Modifier.graphicsLayer { alpha = detail; translationY = (1f - detail) * 10.dp.toPx() })
+                }
+                Gap(width = PILL_GAP)
+            }
+            StatsPill(ui, nav, pill, dot)
+            if (plan.pillAtEdge) Spacer(Modifier.weight(1f))
+            if (device != null) {
+                Gap(width = STATUS_GAP)
+                DeviceStatusView(device, clock)
+            }
         }
-        Gap(width = 10.dp)
-        StatsPill(ui, nav)
+    }
+}
+
+private val MARK_SIZE = 26.dp
+private val MARK_GAP = 12.dp
+private val PILL_GAP = 10.dp
+private val STATUS_GAP = 14.dp
+private val METRIC_GAP = 18.dp
+/** The title's room before the mark gives way, scaled with the font. */
+private val TITLE_WANT = 88.dp
+
+/** What the header holds, measured on the real text at the current font scale, for [HeaderFit]. */
+@Composable
+private fun headerWidths(
+    measurer: TextMeasurer, fold: Fold, available: Float, title: String, pill: AnnotatedString,
+    device: DeviceStatus?, metrics: List<Pair<String, String>>?,
+): HeaderFit.Widths {
+    val density = LocalDensity.current
+    fun width(text: String, style: TextStyle) = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width.toFloat()
+    return with(density) {
+        val pillText = measurer.measure(pill, fold.hint.copy(fontWeight = fold.strong), maxLines = 1, softWrap = false).size.width
+        val battery = device?.battery
+        val glyph = if (battery == null) 0f else StatusMetrics.glyph(fontScale).toPx()
+        val percent = if (battery?.low == true) width("${battery.percent}%", fold.percentStyle(battery)) + StatusMetrics.GAP.toPx() else 0f
+        val clock = if (device == null) 0f else maxOf(width(device.clock, fold.clockStyle()), width(device.widestClock, fold.clockStyle())) +
+            (if (battery == null) 0f else StatusMetrics.GAP.toPx())
+        val titleFull = width(title, fold.title)
+        val titleMin = if (title.length <= 5) titleFull else width(title.take(5) + "…", fold.title)
+        HeaderFit.Widths(
+            available = available,
+            mark = (MARK_SIZE + MARK_GAP).toPx(),
+            pillGap = PILL_GAP.toPx(),
+            pill = (9.dp + 8.dp + 28.dp).toPx() + pillText,
+            statusGap = if (device == null) 0f else STATUS_GAP.toPx(),
+            status = percent + glyph + clock,
+            statusNoClock = percent + glyph,
+            titleWant = minOf(TITLE_WANT.toPx() * fontScale, titleFull),
+            titleMin = minOf(titleMin, titleFull),
+            metrics = metrics?.map { (value, label) -> maxOf(width(value, metricValueStyle(fold)), width(label, metricLabelStyle(fold))) }
+                ?: listOf(width(WAITING, fold.hint)),
+            metricGap = METRIC_GAP.toPx(),
+        )
     }
 }
 
 /**
  * fps and ping on a pill, with a dot that says at a glance how the stream is doing. When the
- * dot is amber or rose, ping gives way to what is wrong: "21 fps · 6% loss".
+ * dot is amber or rose, ping gives way to what is wrong: "21 fps · 6% loss". With detail open,
+ * the metrics name it instead (see [pillText]).
  */
 @Composable
-private fun StatsPill(ui: CompanionUi, nav: NavHost) {
+private fun StatsPill(ui: CompanionUi, nav: NavHost, text: AnnotatedString, dot: Color) {
     val fold = LocalFold.current
     val id = "stats"
     val focused = nav.isFocused(id)
-    val stats = ui.stats
     val toggle = { ui.statsDetail = !ui.statsDetail }
-    val dot = when {
-        stats == null -> fold.muted
-        else -> when (StreamHealth.verdict(stats, ui.targetFps).level) { 2 -> fold.rose; 1 -> fold.attention; else -> fold.on }
-    }
-    val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
-    val waiting = stats == null
+    val waiting = ui.stats == null
     val breath = if (waiting) {
         val t = rememberInfiniteTransition(label = "connecting")
         t.animateFloat(0.3f, 1f, infiniteRepeatable(tween(fold.duration(fold.durationPulse), easing = fold.pulse), RepeatMode.Reverse), label = "dot")
@@ -278,37 +352,84 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
     ) {
         Box(Modifier.size(9.dp).graphicsLayer { alpha = breath?.value ?: 1f }.drawBehind { drawCircle(dot) })
         Gap(width = 8.dp)
-        val text = when {
-            ui.restarting -> "Restarting…"
-            ui.applied != null -> ui.applied!!
-            stats == null -> "Connecting…"
-            else -> StreamHealth.pillText(stats, ui.targetFps, locale)
-        }
         BasicText(text, style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong), maxLines = 1)
     }
 }
 
+/** The stats dot's colour: teal, amber or rose by the verdict; muted before the first stats. */
+private fun healthColor(fold: Fold, verdict: StreamHealth.Verdict?): Color = when (verdict?.level) {
+    null -> fold.muted
+    2 -> fold.rose
+    1 -> fold.attention
+    else -> fold.on
+}
+
+/**
+ * The pill's words. With detail open it reads fps and ping, since the metrics beside it name
+ * decode and loss; a ping that is the cause wears the dot's colour there.
+ */
+private fun pillText(ui: CompanionUi, stats: StreamStats?, verdict: StreamHealth.Verdict?, dot: Color, locale: java.util.Locale): AnnotatedString = when {
+    ui.restarting -> AnnotatedString("Restarting…")
+    ui.applied != null -> AnnotatedString(ui.applied!!)
+    stats == null -> AnnotatedString("Connecting…")
+    ui.statsDetail -> {
+        val (text, pingStart) = StreamHealth.detailPillText(stats, locale)
+        buildAnnotatedString {
+            append(text)
+            if (verdict?.cause == StreamHealth.Cause.Ping) addStyle(SpanStyle(color = dot), pingStart, text.length)
+        }
+    }
+    else -> AnnotatedString(StreamHealth.pillText(stats, ui.targetFps, locale))
+}
+
+private const val WAITING = "Waiting for video"
+
+/** Decode, loss, and resolution with codec, as (value, label); null while there is no video yet. */
+private fun metricTexts(stats: StreamStats?, locale: java.util.Locale): List<Pair<String, String>>? =
+    if (stats == null) null
+    else listOf(
+        String.format(locale, "%.1f", stats.decodeMs) to "ms decode",
+        String.format(locale, "%.1f%%", stats.lossPercent) to "loss",
+        "${stats.width}×${stats.height}" to stats.codec,
+    )
+
+private fun metricValueStyle(fold: Fold) = fold.hint.copy(color = fold.ink, fontWeight = fold.strong, fontSize = 15.sp)
+private fun metricLabelStyle(fold: Fold) = fold.small.copy(fontSize = 11.sp)
+
+/**
+ * The detail metrics. The value behind the dot's colour wears that colour. When the header runs
+ * short only the first [shown] stay, the rest easing away from the right.
+ */
 @Composable
-private fun Metrics(stats: StreamStats?, modifier: Modifier) {
+private fun Metrics(stats: StreamStats?, targetFps: Int, shown: Int, modifier: Modifier) {
     val fold = LocalFold.current
     val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         if (stats == null) {
-            BasicText("Waiting for video", style = fold.hint)
+            // One line in place of the metrics, which gives way as they do when the header runs short.
+            val place = eased(if (shown > 0) 1f else 0f, fold.durationSelect)
+            BasicText(WAITING, Modifier.place { place.value }, style = fold.hint, maxLines = 1)
             return@Row
         }
-        Metric(String.format(locale, "%.1f", stats.decodeMs), "ms decode")
-        Metric(String.format(locale, "%.1f%%", stats.lossPercent), "loss")
-        Metric("${stats.width}×${stats.height}", stats.codec)
+        val verdict = StreamHealth.verdict(stats, targetFps)
+        val cause = healthColor(fold, verdict)
+        val tones = listOf(cause.takeIf { verdict.cause == StreamHealth.Cause.Decode }, cause.takeIf { verdict.cause == StreamHealth.Cause.Loss }, null)
+        metricTexts(stats, locale)!!.forEachIndexed { i, (value, label) ->
+            val place = eased(if (i < shown) 1f else 0f, fold.durationSelect)
+            Row(Modifier.place { place.value }) {
+                if (i > 0) Gap(width = METRIC_GAP)
+                Metric(value, label, tones[i])
+            }
+        }
     }
 }
 
 @Composable
-private fun Metric(value: String, label: String) {
+private fun Metric(value: String, label: String, tone: Color? = null) {
     val fold = LocalFold.current
     Column {
-        BasicText(value, style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong, fontSize = 15.sp), maxLines = 1)
-        BasicText(label, style = fold.small.copy(fontSize = 11.sp), maxLines = 1)
+        BasicText(value, style = metricValueStyle(fold).copy(color = tone ?: fold.ink), maxLines = 1)
+        BasicText(label, style = metricLabelStyle(fold), maxLines = 1)
     }
 }
 
