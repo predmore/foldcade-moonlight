@@ -99,6 +99,18 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
     /** The debug preview opens a given screen or state; release builds never do. */
     protected open fun previewState(): String? = null
 
+    /** The debug preview's stand-in battery, for QA of low and charging states; release builds read the device's. */
+    protected open fun previewBattery(): DeviceStatus.Battery? = null
+
+    /** The debug preview's stand-in time, in milliseconds since the epoch; release builds read the clock. */
+    protected open fun previewTime(): Long? = null
+
+    private var deviceWatcher: DeviceStatus.Watcher? = null
+
+    private fun readDevice() {
+        ui.device = DeviceStatus.read(this, previewBattery(), previewTime() ?: System.currentTimeMillis())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val s = obtainSession()
@@ -108,6 +120,8 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
         ui = CompanionUi(s.title, s.pcName)
         ui.learned = learnedGestures()
         ui.switchLearned = getPreferences(MODE_PRIVATE).getBoolean(SWITCH_LEARNED, false)
+        readDevice()
+        deviceWatcher = DeviceStatus.Watcher(this) { readDevice() }
         // The window stays focusable. Launching it makes the bottom display the focused one, and a
         // non-focusable window there would leave controller input with no window at all. Every key
         // and controller motion it receives is forwarded to the stream unless the companion owns it.
@@ -653,6 +667,17 @@ open class CompanionActivity : ComponentActivity(), FoldcadeSession.CompanionVie
             }
         }
         refresh()
+    }
+
+    // The clock and battery are watched only while the companion is visible, and read afresh when it returns.
+    override fun onStart() {
+        super.onStart()
+        deviceWatcher?.start()
+    }
+
+    override fun onStop() {
+        deviceWatcher?.stop()
+        super.onStop()
     }
 
     override fun onDestroy() {
