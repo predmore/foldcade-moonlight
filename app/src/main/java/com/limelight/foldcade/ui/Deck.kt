@@ -245,7 +245,8 @@ private fun Header(ui: CompanionUi, nav: NavHost) {
     val pill = pillText(ui, stats, verdict, dot, locale)
     val device = ui.device
     val measurer = rememberTextMeasurer()
-    BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp)) {
+    // 44dp, or taller at large text, so the PC's name below the title is never cut; the pad gives way.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
         val widths = headerWidths(measurer, fold, constraints.maxWidth.toFloat(), ui.title, pill, device, metricTexts(stats, locale))
         // Opening or closing detail, or a new width, is the player's own change: it takes effect at once.
         val target = HeaderFit.step(widths, ui.statsDetail)
@@ -254,13 +255,13 @@ private fun Header(ui: CompanionUi, nav: NavHost) {
         val mark = eased(if (plan.mark) 1f else 0f, fold.durationSelect)
         val title by eased(if (plan.title) 1f else 0f, fold.durationSelect)
         val clock = eased(if (plan.clock) 1f else 0f, fold.durationSelect)
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.place { mark.value }, verticalAlignment = Alignment.CenterVertically) {
                 Glyph(R.drawable.fc_symbol_moonlight, MARK_SIZE, fold.ink, Modifier.graphicsLayer { alpha = 0.9f })
                 Gap(width = MARK_GAP)
             }
             if (!plan.pillAtEdge) {
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (detail < 1f && title > 0f) Column(Modifier.graphicsLayer { alpha = (1f - detail) * title; translationY = -detail * 10.dp.toPx() }) {
                         BasicText(ui.title, style = fold.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         BasicText(ui.pcName, style = fold.small.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
