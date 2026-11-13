@@ -42,4 +42,15 @@ object StreamHealth {
             null -> fps + " · " + String.format(locale, "%d ms", stats.rttMs)
         }
     }
+
+    /**
+     * The pill while the detail metrics are open: fps and ping, whatever the verdict. The metrics
+     * beside it show decode and loss, so the pill no longer repeats them; ping is not among the
+     * metrics, so it stays here. The second value is where the ping begins, for colouring it as
+     * the cause.
+     */
+    fun detailPillText(stats: StreamStats, locale: Locale): Pair<String, Int> {
+        val fps = String.format(locale, "%.0f fps", stats.fps) + " · "
+        return (fps + String.format(locale, "%d ms", stats.rttMs)) to fps.length
+    }
 }

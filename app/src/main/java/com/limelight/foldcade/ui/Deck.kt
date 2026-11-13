@@ -48,6 +48,9 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.limelight.R
@@ -236,7 +239,7 @@ private fun Header(ui: CompanionUi, nav: NavHost) {
                 BasicText(ui.title, style = fold.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 BasicText(ui.pcName, style = fold.small.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (detail > 0f) Metrics(ui.stats, Modifier.graphicsLayer { alpha = detail; translationY = (1f - detail) * 10.dp.toPx() })
+            if (detail > 0f) Metrics(ui.stats, ui.targetFps, Modifier.graphicsLayer { alpha = detail; translationY = (1f - detail) * 10.dp.toPx() })
         }
         Gap(width = 10.dp)
         StatsPill(ui, nav)
@@ -245,7 +248,8 @@ private fun Header(ui: CompanionUi, nav: NavHost) {
 
 /**
  * fps and ping on a pill, with a dot that says at a glance how the stream is doing. When the
- * dot is amber or rose, ping gives way to what is wrong: "21 fps · 6% loss".
+ * dot is amber or rose, ping gives way to what is wrong: "21 fps · 6% loss". With detail open,
+ * the metrics name it instead (see [pillText]).
  */
 @Composable
 private fun StatsPill(ui: CompanionUi, nav: NavHost) {
@@ -254,10 +258,8 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
     val focused = nav.isFocused(id)
     val stats = ui.stats
     val toggle = { ui.statsDetail = !ui.statsDetail }
-    val dot = when {
-        stats == null -> fold.muted
-        else -> when (StreamHealth.verdict(stats, ui.targetFps).level) { 2 -> fold.rose; 1 -> fold.attention; else -> fold.on }
-    }
+    val verdict = stats?.let { StreamHealth.verdict(it, ui.targetFps) }
+    val dot = healthColor(fold, verdict)
     val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
     val waiting = stats == null
     val breath = if (waiting) {
@@ -278,18 +280,39 @@ private fun StatsPill(ui: CompanionUi, nav: NavHost) {
     ) {
         Box(Modifier.size(9.dp).graphicsLayer { alpha = breath?.value ?: 1f }.drawBehind { drawCircle(dot) })
         Gap(width = 8.dp)
-        val text = when {
-            ui.restarting -> "Restarting…"
-            ui.applied != null -> ui.applied!!
-            stats == null -> "Connecting…"
-            else -> StreamHealth.pillText(stats, ui.targetFps, locale)
-        }
-        BasicText(text, style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong), maxLines = 1)
+        BasicText(pillText(ui, stats, verdict, dot, locale), style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong), maxLines = 1)
     }
 }
 
+/** The stats dot's colour: teal, amber or rose by the verdict; muted before the first stats. */
+private fun healthColor(fold: Fold, verdict: StreamHealth.Verdict?): Color = when (verdict?.level) {
+    null -> fold.muted
+    2 -> fold.rose
+    1 -> fold.attention
+    else -> fold.on
+}
+
+/**
+ * The pill's words. With detail open it reads fps and ping, since the metrics beside it name
+ * decode and loss; a ping that is the cause wears the dot's colour there.
+ */
+private fun pillText(ui: CompanionUi, stats: StreamStats?, verdict: StreamHealth.Verdict?, dot: Color, locale: java.util.Locale): AnnotatedString = when {
+    ui.restarting -> AnnotatedString("Restarting…")
+    ui.applied != null -> AnnotatedString(ui.applied!!)
+    stats == null -> AnnotatedString("Connecting…")
+    ui.statsDetail -> {
+        val (text, pingStart) = StreamHealth.detailPillText(stats, locale)
+        buildAnnotatedString {
+            append(text)
+            if (verdict?.cause == StreamHealth.Cause.Ping) addStyle(SpanStyle(color = dot), pingStart, text.length)
+        }
+    }
+    else -> AnnotatedString(StreamHealth.pillText(stats, ui.targetFps, locale))
+}
+
+/** Decode, loss, and resolution with codec. The value behind the dot's colour wears that colour. */
 @Composable
-private fun Metrics(stats: StreamStats?, modifier: Modifier) {
+private fun Metrics(stats: StreamStats?, targetFps: Int, modifier: Modifier) {
     val fold = LocalFold.current
     val locale = androidx.core.os.ConfigurationCompat.getLocales(LocalConfiguration.current)[0] ?: java.util.Locale.ROOT
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -297,17 +320,19 @@ private fun Metrics(stats: StreamStats?, modifier: Modifier) {
             BasicText("Waiting for video", style = fold.hint)
             return@Row
         }
-        Metric(String.format(locale, "%.1f", stats.decodeMs), "ms decode")
-        Metric(String.format(locale, "%.1f%%", stats.lossPercent), "loss")
+        val verdict = StreamHealth.verdict(stats, targetFps)
+        val cause = healthColor(fold, verdict)
+        Metric(String.format(locale, "%.1f", stats.decodeMs), "ms decode", cause.takeIf { verdict.cause == StreamHealth.Cause.Decode })
+        Metric(String.format(locale, "%.1f%%", stats.lossPercent), "loss", cause.takeIf { verdict.cause == StreamHealth.Cause.Loss })
         Metric("${stats.width}×${stats.height}", stats.codec)
     }
 }
 
 @Composable
-private fun Metric(value: String, label: String) {
+private fun Metric(value: String, label: String, tone: Color? = null) {
     val fold = LocalFold.current
     Column {
-        BasicText(value, style = fold.hint.copy(color = fold.ink, fontWeight = fold.strong, fontSize = 15.sp), maxLines = 1)
+        BasicText(value, style = fold.hint.copy(color = tone ?: fold.ink, fontWeight = fold.strong, fontSize = 15.sp), maxLines = 1)
         BasicText(label, style = fold.small.copy(fontSize = 11.sp), maxLines = 1)
     }
 }
