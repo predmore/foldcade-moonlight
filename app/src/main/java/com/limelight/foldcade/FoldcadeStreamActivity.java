@@ -262,6 +262,8 @@ public final class FoldcadeStreamActivity extends Game {
     }
 
     @Override public void finish() {
+        // Game.onStop finishes the stream; other media needn't wait for onDestroy to resume.
+        releaseAudioFocus();
         if (session != null) session.streamFinished(this);
         super.finish();
     }
