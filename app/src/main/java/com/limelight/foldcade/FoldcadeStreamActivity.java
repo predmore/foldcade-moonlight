@@ -2,6 +2,9 @@ package com.limelight.foldcade;
 
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.view.Display;
 import android.view.Gravity;
@@ -42,7 +45,42 @@ public final class FoldcadeStreamActivity extends Game {
     }
     @Override protected void onConnectionCreated(NvConnection connection) {
         session.setStreamIntent(getIntent());
+        // Before attach, which opens the companion on the bottom screen. See holdAudioFocus.
+        holdAudioFocus();
         session.attach(this, connection);
+    }
+
+    private AudioFocusRequest audioFocus;
+
+    /**
+     * Plays the stream at the top screen's volume, the one the Thor's volume keys set.
+     *
+     * The Thor plays every app with a window on the bottom screen at the bottom screen's own
+     * volume, and the companion puts this app there. The one exception is the app holding audio
+     * focus, if the top screen had it in front when it asked. A screen reports its front app as
+     * that changes, so this asks while the stream's report is the latest: before the companion
+     * opens. While another app holds focus, the stream keeps playing at the bottom screen's
+     * volume: until it lets go of a brief hold, or for the rest of the stream if it took focus for
+     * good. Asking again mid-stream can't help: the top screen only reports a new front app, and
+     * anything in front of the stream ends it (Game.onStop).
+     */
+    private void holdAudioFocus() {
+        // Foldcade sessions only exist on Android 8 and later; see FoldcadePlayActivity.
+        if (audioFocus != null || android.os.Build.VERSION.SDK_INT < 26) return;
+        AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audio == null) return;
+        audioFocus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).build())
+                .setOnAudioFocusChangeListener(change -> { })
+                .build();
+        audio.requestAudioFocus(audioFocus);
+    }
+
+    private void releaseAudioFocus() {
+        if (audioFocus == null || android.os.Build.VERSION.SDK_INT < 26) return;
+        AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audio != null) audio.abandonAudioFocusRequest(audioFocus);
+        audioFocus = null;
     }
 
     @Override protected void configureStreamPreferences(PreferenceConfiguration preferences) {
@@ -229,6 +267,7 @@ public final class FoldcadeStreamActivity extends Game {
     }
 
     @Override protected void onDestroy() {
+        releaseAudioFocus();
         if (session != null) session.streamFinished(this);
         super.onDestroy();
     }
